@@ -79,10 +79,7 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-# TIME_ZONE fix karo
-TIME_ZONE = 'Asia/Karachi'
-
-# DATABASES mein HOST fix — localhost reliable hai
+# Host set to localhost for reliable local MSSQL connection
 DATABASES = {
     'default': {
         'ENGINE': 'mssql',
@@ -95,7 +92,6 @@ DATABASES = {
         },
     }
 }
-
 
 
 # Password validation
@@ -119,6 +115,14 @@ AUTH_PASSWORD_VALIDATORS = [
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
+
+LANGUAGE_CODE = 'en-us'
+
+TIME_ZONE = 'Asia/Karachi'
+
+USE_I18N = True
+
+USE_TZ = True
 
 
 # Static files (CSS, JavaScript, Images)

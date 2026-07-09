@@ -13,8 +13,8 @@ class RegisterView(APIView):
         if serializer.is_valid():
             serializer.save()
             return Response({"message": "Account successfully created!"}, status=status.HTTP_201_CREATED)
-        
-        # Agar email pehle se hai ya password missing hai toh errors wapas bhejenge
+
+        # Return validation errors if email already exists or fields are invalid
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -24,12 +24,19 @@ class LoginView(APIView):
         email = request.data.get('email')
         password = request.data.get('password')
 
-        # Django ka 'authenticate' default username mangta hai. 
-        # Humne serializers mein username ki jagah email save kiya tha, isliye yahan username=email bhej rahe hain.
-        user = authenticate(username=email, password=password)
+        # Reject request if email or password is missing
+        if not email or not password:
+            return Response(
+                {"error": "Email and password are both required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Django's authenticate() requires username. Since we saved email as username,
+        # we pass email.lower() to match the stored value exactly.
+        user = authenticate(username=email.lower(), password=password)
 
         if user is not None:
-            # User theek hai! Ab uske liye naye JWT Tokens generate karo
+            # Credentials valid — generate new JWT tokens for the user
             refresh = RefreshToken.for_user(user)
             return Response({
                 "message": "Login successful!",
@@ -48,12 +55,12 @@ class LoginView(APIView):
 
 # 3. USER PROFILE API (Protected Route)
 class UserProfileView(APIView):
-    permission_classes = [IsAuthenticated] 
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         user = request.user
         return Response({
-            "id": user.id,              # 🟢 Yeh line add kar di gayi hai
+            "id": user.id,              # User ID included in response
             "name": user.first_name,
             "email": user.email,
             "date_joined": user.date_joined
