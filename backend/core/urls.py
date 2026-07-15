@@ -21,6 +21,5 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     
     # 🟢 Custom API Routes
-    # Jab koi http://localhost:8000/api/ hit karega, toh yeh requests 'api.urls' ko pass ho jayengi
     path('api/', include('api.urls')), 
 ]
