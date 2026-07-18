@@ -23,12 +23,27 @@ ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
 ]
+# Allowed Hosts
+ALLOWED_HOSTS = ['*']  # Temporarily allow all hosts to prevent blocking
+
+# CSRF Trusted Origins (Allow both HTTP and HTTPS, including wildcards)
 CSRF_TRUSTED_ORIGINS = [
     'https://safe-speak-d9hxf4a4axdfdybq.eastasia-01.azurewebsites.net',
+    'http://safe-speak-d9hxf4a4axdfdybq.eastasia-01.azurewebsites.net',
+    'https://*.azurewebsites.net',
 ]
+
+# Proxy Headers (Required for Azure deployments)
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+
+# Secure Cookies (Ensures cookies are sent over HTTPS)
 CSRF_COOKIE_SECURE = True
 SESSION_COOKIE_SECURE = True
+
+# CORS Settings (Allow frontend to communicate with backend)
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
 
 # Application definition
 INSTALLED_APPS = [
