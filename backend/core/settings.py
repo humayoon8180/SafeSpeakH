@@ -15,7 +15,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY')
 
 # Production: DEBUG = False
-DEBUG = False
+DEBUG = True
 
 # Allowed Hosts
 ALLOWED_HOSTS = [
@@ -23,7 +23,9 @@ ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
 ]
-
+CSRF_TRUSTED_ORIGINS = [
+    'https://safe-speak-d9hxf4a4axdfdybq.eastasia-01.azurewebsites.net',
+]
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
