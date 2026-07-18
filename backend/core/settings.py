@@ -26,6 +26,7 @@ ALLOWED_HOSTS = [
 CSRF_TRUSTED_ORIGINS = [
     'https://safe-speak-d9hxf4a4axdfdybq.eastasia-01.azurewebsites.net',
 ]
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
