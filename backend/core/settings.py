@@ -26,22 +26,28 @@ ALLOWED_HOSTS = [
 # Allowed Hosts
 ALLOWED_HOSTS = ['*']  # Temporarily allow all hosts to prevent blocking
 
-# CSRF Trusted Origins (Allow both HTTP and HTTPS, including wildcards)
+# Production: DEBUG = True rakhein taake error wazeh ho (baad mein False kar lenge)
+DEBUG = True
+
+# Allowed Hosts
+ALLOWED_HOSTS = ['*']  # Sab allow kar diya hai
+
+# CSRF Trusted Origins (Har qisam ka host allow kar diya hai)
 CSRF_TRUSTED_ORIGINS = [
     'https://safe-speak-d9hxf4a4axdfdybq.eastasia-01.azurewebsites.net',
     'http://safe-speak-d9hxf4a4axdfdybq.eastasia-01.azurewebsites.net',
     'https://*.azurewebsites.net',
 ]
 
-# Proxy Headers (Required for Azure deployments)
+# Azure ke proxy headers
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 USE_X_FORWARDED_HOST = True
 
-# Secure Cookies (Ensures cookies are sent over HTTPS)
-CSRF_COOKIE_SECURE = True
-SESSION_COOKIE_SECURE = True
+# --- FINAL TRICK: Cookies ko False rakhna hai taake HTTPS conflict na aaye ---
+CSRF_COOKIE_SECURE = False
+SESSION_COOKIE_SECURE = False
 
-# CORS Settings (Allow frontend to communicate with backend)
+# CORS (Frontend ke liye)
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
 
