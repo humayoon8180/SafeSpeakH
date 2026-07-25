@@ -1,3 +1,6 @@
+# api/views.py
+# All API views with updated response format
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -12,56 +15,87 @@ class RegisterView(APIView):
         serializer = UserRegistrationSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
-            return Response({"message": "Account successfully created!"}, status=status.HTTP_201_CREATED)
+            return Response({
+                "status":  "success",
+                "message": "Account created successfully"
+            }, status=status.HTTP_201_CREATED)
 
-        # Return validation errors if email already exists or fields are invalid
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        # Get first error message
+        errors = serializer.errors
+        first_error = next(iter(errors.values()))[0]
+        return Response({
+            "status":  "fail",
+            "message": str(first_error)
+        }, status=status.HTTP_400_BAD_REQUEST)
 
 
 # 2. LOGIN API
 class LoginView(APIView):
     def post(self, request):
-        email = request.data.get('email')
+        email    = request.data.get('email')
         password = request.data.get('password')
 
-        # Reject request if email or password is missing
         if not email or not password:
-            return Response(
-                {"error": "Email and password are both required."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({
+                "status":  "fail",
+                "message": "Email and password are required."
+            }, status=status.HTTP_400_BAD_REQUEST)
 
-        # Django's authenticate() requires username. Since we saved email as username,
-        # we pass email.lower() to match the stored value exactly.
-        user = authenticate(username=email.lower(), password=password)
+        user = authenticate(
+            username=email.lower(),
+            password=password
+        )
 
         if user is not None:
-            # Credentials valid — generate new JWT tokens for the user
             refresh = RefreshToken.for_user(user)
+
+            # Get or create user profile
+            profile, _ = user.userprofile.__class__.objects.get_or_create(
+                user=user
+            )
+
             return Response({
-                "message": "Login successful!",
-                "tokens": {
-                    "refresh": str(refresh),
-                    "access": str(refresh.access_token),
-                },
+                "status":        "success",
+                "message":       "Login successful",
+                "access_token":  str(refresh.access_token),
+                "refresh_token": str(refresh),
                 "user": {
-                    "name": user.first_name,
-                    "email": user.email
+                    "id":                user.id,
+                    "name":              user.first_name,
+                    "email":             user.email,
+                    "face_verification": profile.face_verification,
+                    "voice_verification": profile.voice_verification,
+                    "voice_score":       profile.voice_score
                 }
             }, status=status.HTTP_200_OK)
-        else:
-            return Response({"error": "Invalid email or password"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        return Response({
+            "status":  "fail",
+            "message": "Email or password is incorrect."
+        }, status=status.HTTP_401_UNAUTHORIZED)
 
 
-# 3. USER PROFILE API (Protected Route)
+# 3. PROFILE API (Protected)
 class UserProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         user = request.user
+
+        # Get or create profile
+        profile, _ = user.userprofile.__class__.objects.get_or_create(
+            user=user
+        )
+
         return Response({
-            "id": user.id,              # User ID included in response
-            "name": user.first_name,
-            "email": user.email,
-            "date_joined": user.date_joined
+            "status": "success",
+            "user": {
+                "id":                user.id,
+                "name":              user.first_name,
+                "email":             user.email,
+                "date_joined":       user.date_joined,
+                "face_verification": profile.face_verification,
+                "voice_verification": profile.voice_verification,
+                "voice_score":       profile.voice_score
+            }
         }, status=status.HTTP_200_OK)

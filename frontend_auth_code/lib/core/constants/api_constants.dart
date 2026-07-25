@@ -2,8 +2,9 @@
 // All API URLs defined in one place
 
 class ApiConstants {
-  // Base URL for Android emulator
-  static const String baseUrl = 'http://10.0.2.2:8000/api';
+  // Base URL - Azure Live Server
+  static const String baseUrl = 
+    'https://safe-speak-d9hxf4a4axdfdybq.eastasia-01.azurewebsites.net/api';
 
   // Auth endpoints
   static const String register = '/register/';
