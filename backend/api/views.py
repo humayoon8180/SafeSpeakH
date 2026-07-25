@@ -48,24 +48,15 @@ class LoginView(APIView):
 
         if user is not None:
             refresh = RefreshToken.for_user(user)
-
-            # Get or create user profile
-            profile, _ = user.userprofile.__class__.objects.get_or_create(
-                user=user
-            )
-
             return Response({
                 "status":        "success",
                 "message":       "Login successful",
                 "access_token":  str(refresh.access_token),
                 "refresh_token": str(refresh),
                 "user": {
-                    "id":                user.id,
-                    "name":              user.first_name,
-                    "email":             user.email,
-                    "face_verification": profile.face_verification,
-                    "voice_verification": profile.voice_verification,
-                    "voice_score":       profile.voice_score
+                    "id":    user.id,
+                    "name":  user.first_name,
+                    "email": user.email
                 }
             }, status=status.HTTP_200_OK)
 
@@ -73,7 +64,6 @@ class LoginView(APIView):
             "status":  "fail",
             "message": "Email or password is incorrect."
         }, status=status.HTTP_401_UNAUTHORIZED)
-
 
 # 3. PROFILE API (Protected)
 class UserProfileView(APIView):
