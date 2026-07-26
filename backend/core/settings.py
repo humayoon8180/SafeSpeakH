@@ -1,56 +1,21 @@
-"""
-Django settings for core project.
-"""
-
 import os
 from pathlib import Path
-from datetime import timedelta
 from dotenv import load_dotenv
+from datetime import timedelta
 
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Secret Key
-SECRET_KEY = os.getenv('SECRET_KEY')
+SECRET_KEY = os.getenv('SECRET_KEY', 'fallback-secret-key')
+DEBUG = False
 
-# Production: DEBUG = False
-DEBUG = True
-
-# Allowed Hosts
 ALLOWED_HOSTS = [
     '.azurewebsites.net',
     'localhost',
     '127.0.0.1',
 ]
-# Allowed Hosts
-ALLOWED_HOSTS = ['*']  # Temporarily allow all hosts to prevent blocking
 
-# Production: DEBUG = True rakhein taake error wazeh ho (baad mein False kar lenge)
-DEBUG = True
-
-# Allowed Hosts
-ALLOWED_HOSTS = ['*']  # Sab allow kar diya hai
-
-# CSRF Trusted Origins (Har qisam ka host allow kar diya hai)
-CSRF_TRUSTED_ORIGINS = [
-    'https://safe-speak-d9hxf4a4axdfdybq.eastasia-01.azurewebsites.net',
-    'http://safe-speak-d9hxf4a4axdfdybq.eastasia-01.azurewebsites.net',
-    'https://*.azurewebsites.net',
-]
-
-# Azure ke proxy headers
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-USE_X_FORWARDED_HOST = True
-
-# --- FINAL TRICK: Cookies ko False rakhna hai taake HTTPS conflict na aaye ---
-CSRF_COOKIE_SECURE = False
-SESSION_COOKIE_SECURE = False
-
-# CORS (Frontend ke liye)
-CORS_ALLOW_ALL_ORIGINS = True
-
-# Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -58,18 +23,14 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-
-    # 3rd Party
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',
-
-    # Local Apps
     'api',
 ]
 
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',       # FIRST — CORS
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -99,7 +60,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'core.wsgi.application'
 
-# Database - Azure MSSQL
 DATABASES = {
     'default': {
         'ENGINE': 'mssql',
@@ -115,7 +75,6 @@ DATABASES = {
     }
 }
 
-# Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
@@ -134,8 +93,10 @@ STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-# Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# CORS — Flutter ke liye
+CORS_ALLOW_ALL_ORIGINS = True
 
 # REST Framework
 REST_FRAMEWORK = {
@@ -146,10 +107,7 @@ REST_FRAMEWORK = {
 
 # JWT Settings
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=5),
+    'ACCESS_TOKEN_LIFETIME':  timedelta(minutes=5),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
-
-# CORS Settings - Flutter app access
-CORS_ALLOW_ALL_ORIGINS = True  # Production mein specific origins set karo

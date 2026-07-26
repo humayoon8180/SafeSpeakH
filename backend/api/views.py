@@ -72,20 +72,25 @@ class UserProfileView(APIView):
     def get(self, request):
         user = request.user
 
-        # Get or create profile
-        profile, _ = user.userprofile.__class__.objects.get_or_create(
-            user=user
-        )
+        # Safe profile get or create
+        try:
+            from .models import UserProfile
+            profile, _ = UserProfile.objects.get_or_create(user=user)
+        except Exception as e:
+            return Response({
+                "status": "fail",
+                "message": "Profile error occurred."
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response({
             "status": "success",
             "user": {
-                "id":                user.id,
-                "name":              user.first_name,
-                "email":             user.email,
-                "date_joined":       user.date_joined,
-                "face_verification": profile.face_verification,
+                "id":                 user.id,
+                "name":               user.first_name,
+                "email":              user.email,
+                "date_joined":        user.date_joined,
+                "face_verification":  profile.face_verification,
                 "voice_verification": profile.voice_verification,
-                "voice_score":       profile.voice_score
+                "voice_score":        profile.voice_score
             }
         }, status=status.HTTP_200_OK)
