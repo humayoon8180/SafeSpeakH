@@ -14,17 +14,36 @@ class RegisterView(APIView):
     def post(self, request):
         serializer = UserRegistrationSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
+            user = serializer.save()
+            
+            # Signup successful hone par foran token generate karna
+            refresh = RefreshToken.for_user(user)
+            
+            # Standard Format as requested by frontend
             return Response({
-                "status":  "success",
-                "message": "Account created successfully"
+                "success": True,
+                "message": "Account created successfully",
+                "data": {
+                    "access_token": str(refresh.access_token),
+                    "refresh_token": str(refresh),
+                    "user": {
+                        "id": user.id,
+                        "name": user.first_name,
+                        "email": user.email,
+                        "face_verification": request.data.get('face_verification'),
+                        "voice_verification": request.data.get('voice_verification'),
+                        "voice_score": request.data.get('voice_score')
+                    }
+                }
             }, status=status.HTTP_201_CREATED)
 
+        # Formatting Errors 
         errors = serializer.errors
         first_error = next(iter(errors.values()))[0]
         return Response({
-            "status":  "fail",
-            "message": str(first_error)
+            "success": False,
+            "message": str(first_error),
+            "data": errors
         }, status=status.HTTP_400_BAD_REQUEST)
 
 

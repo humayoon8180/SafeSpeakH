@@ -1,5 +1,5 @@
 # api/serializers.py
-# Register serializer with updated error response
+# Register serializer with updated error response and verification fields
 
 from django.contrib.auth.models import User
 from rest_framework import serializers
@@ -14,10 +14,15 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         min_length=8,
         style={'input_type': 'password'}
     )
+    
+    # Frontend se aane wale nayi verification fields
+    face_verification = serializers.BooleanField(required=True)
+    voice_verification = serializers.BooleanField(required=True)
+    voice_score = serializers.FloatField(required=True)
 
     class Meta:
         model  = User
-        fields = ('email', 'name', 'password')
+        fields = ('email', 'name', 'password', 'face_verification', 'voice_verification', 'voice_score')
 
     def validate_email(self, value):
         if User.objects.filter(email__iexact=value).exists():
@@ -37,6 +42,11 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         email      = validated_data['email']
         password   = validated_data['password']
         first_name = validated_data['first_name']
+        
+        # Profile data alag karna taake User creation mein masla na ho
+        face_verification = validated_data.pop('face_verification', False)
+        voice_verification = validated_data.pop('voice_verification', False)
+        voice_score = validated_data.pop('voice_score', 0.0)
 
         user = User.objects.create_user(
             username   = email,
@@ -45,6 +55,11 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
             first_name = first_name
         )
 
-        # Create UserProfile automatically
-        UserProfile.objects.create(user=user)
+        # Profile banate waqt frontend wala verification data save karna
+        UserProfile.objects.create(
+            user=user,
+            face_verification=face_verification,
+            voice_verification=voice_verification,
+            voice_score=voice_score
+        )
         return user
