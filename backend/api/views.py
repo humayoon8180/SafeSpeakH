@@ -47,7 +47,6 @@ class RegisterView(APIView):
         }, status=status.HTTP_400_BAD_REQUEST)
 
 
-# 2. LOGIN API
 class LoginView(APIView):
     def post(self, request):
         email    = request.data.get('email')
@@ -67,14 +66,16 @@ class LoginView(APIView):
         if user is not None:
             refresh = RefreshToken.for_user(user)
             return Response({
-                "status":        "success",
-                "message":       "Login successful",
-                "access_token":  str(refresh.access_token),
-                "refresh_token": str(refresh),
-                "user": {
-                    "id":    user.id,
-                    "name":  user.first_name,
-                    "email": user.email
+                "status":  "success",
+                "message": "Login successful",
+                "data": {
+                    "access_token":  str(refresh.access_token),
+                    "refresh_token": str(refresh),
+                    "user": {
+                        "id":    user.id,
+                        "name":  user.first_name,
+                        "email": user.email
+                    }
                 }
             }, status=status.HTTP_200_OK)
 
@@ -82,7 +83,6 @@ class LoginView(APIView):
             "status":  "fail",
             "message": "Email or password is incorrect."
         }, status=status.HTTP_401_UNAUTHORIZED)
-
 
 # 3. PROFILE API (Protected)
 class UserProfileView(APIView):
