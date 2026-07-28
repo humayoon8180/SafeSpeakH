@@ -7,10 +7,11 @@ from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import UserRegistrationSerializer
 from .models import UserProfile
-
+from rest_framework.permissions import AllowAny
 
 # 1. REGISTER API
 class RegisterView(APIView):
+    permission_classes = [AllowAny]
     def post(self, request):
         serializer = UserRegistrationSerializer(data=request.data)
         if serializer.is_valid():
@@ -46,8 +47,9 @@ class RegisterView(APIView):
             "data": errors
         }, status=status.HTTP_400_BAD_REQUEST)
 
-
+##Login Api
 class LoginView(APIView):
+    permission_classes = [AllowAny]
     def post(self, request):
         email    = request.data.get('email')
         password = request.data.get('password')
