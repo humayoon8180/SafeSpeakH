@@ -1,1 +1,0 @@
-web: cd /home/site/wwwroot && pip install -r requirements.txt && python manage.py migrate --no-input && gunicorn --bind=0.0.0.0:8000 --timeout 600 core.wsgi
