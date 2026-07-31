@@ -50,7 +50,7 @@ app.add_middleware(
 
 # ── Routers ─────────────────────────────────────────────────────────────────
 app.include_router(face.router,  prefix="/verify", tags=["Face Verification"])
-app.include_router(voice.router, prefix="/verify", tags=["Voice Verification"])
+#app.include_router(voice.router, prefix="/verify", tags=["Voice Verification"])
 
 
 # ── Health check ────────────────────────────────────────────────────────────
