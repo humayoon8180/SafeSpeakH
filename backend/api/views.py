@@ -95,18 +95,11 @@ class UserProfileView(APIView):
 
         try:
             profile, _ = UserProfile.objects.get_or_create(user=user)
-<<<<<<< HEAD
-        except Exception:
-            return Response({
-                "status":  "fail",
-                "message": "Profile error occurred."
-=======
         except Exception as e:
             # Handle Server Error 500
             return Response({
                 "status":  "fail",
                 "message": "Internal Server Error occurred while fetching profile."
->>>>>>> backend-only
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response({
@@ -118,9 +111,6 @@ class UserProfileView(APIView):
                 "date_joined":        user.date_joined,
                 "face_verification":  profile.face_verification,
                 "voice_verification": profile.voice_verification,
-<<<<<<< HEAD
-                "voice_score":        profile.voice_score
-=======
                 "voice_score":        profile.voice_score,
                 # --- New Fields Has been added---
                 "total_calls":        profile.total_calls,
@@ -129,6 +119,5 @@ class UserProfileView(APIView):
                 "proficiency_level":  profile.proficiency_level,
                 "reports":            profile.reports,
                 "country":            profile.country
->>>>>>> backend-only
             }
         }, status=status.HTTP_200_OK)
