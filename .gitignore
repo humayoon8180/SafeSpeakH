@@ -23,4 +23,9 @@ media/
 .DS_Store
 Thumbs.db
 
+# AI Model Weights (Very Large Files — Downloaded automatically on first run)
 .deepface/
+.deepface_models/
+*.h5
+*.h5.part
+*.pb
