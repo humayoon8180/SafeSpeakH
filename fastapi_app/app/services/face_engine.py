@@ -11,9 +11,12 @@ Pipeline:
 
 import os
 
-# Set DeepFace home directory to the project folder (F: drive) to save C: drive space
-# Must be set BEFORE importing deepface
-os.environ["DEEPFACE_HOME"] = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+# Set DeepFace model storage directory.
+# On Azure, DEEPFACE_HOME is set as an App Service environment variable → respected.
+# Locally (dev), it defaults to .deepface_models/ in the working directory.
+# Must be set BEFORE importing deepface.
+if not os.environ.get("DEEPFACE_HOME"):
+    os.environ["DEEPFACE_HOME"] = os.path.join(os.getcwd(), ".deepface_models")
 
 import io
 import asyncio

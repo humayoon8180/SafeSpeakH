@@ -8,6 +8,9 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import UserRegistrationSerializer
 from .models import UserProfile
 from rest_framework.permissions import AllowAny
+from rest_framework.decorators import api_view, parser_classes
+from rest_framework.parsers import MultiPartParser
+import requests as http_requests
 
 # 1. REGISTER API
 class RegisterView(APIView):
@@ -121,3 +124,41 @@ class UserProfileView(APIView):
                 "country":            profile.country
             }
         }, status=status.HTTP_200_OK)
+
+
+# ── 4. FACE VERIFICATION GATEWAY (Proxy to FastAPI AI Service) ────────────────
+@api_view(['POST'])
+@parser_classes([MultiPartParser])
+def verify_face_gateway(request):
+    """
+    POST /api/verify-face/
+
+    API Gateway: Receives live_image from Flutter, forwards it internally
+    to the FastAPI AI microservice running on port 8001, and returns
+    the exact JSON response back to the frontend.
+
+    This keeps FastAPI hidden from the public internet (127.0.0.1 only).
+    """
+    FASTAPI_URL = "http://127.0.0.1:8001/verify/face/"
+
+    live_image = request.FILES.get("live_image")
+    if not live_image:
+        return Response(
+            {"status": "fail", "message": "No image uploaded. Please provide 'live_image'."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        # Forward the image as multipart/form-data to FastAPI
+        files = {"live_image": (live_image.name, live_image.read(), live_image.content_type)}
+        ai_response = http_requests.post(FASTAPI_URL, files=files, timeout=90)
+        return Response(ai_response.json(), status=ai_response.status_code)
+
+    except http_requests.exceptions.RequestException:
+        return Response(
+            {
+                "status": "fail",
+                "message": "AI verification service is currently unavailable. Please try again later."
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE
+        )
