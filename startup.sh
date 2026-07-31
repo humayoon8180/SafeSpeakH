@@ -8,7 +8,11 @@ curl https://packages.microsoft.com/config/debian/11/prod.list > /etc/apt/source
 apt-get update -y
 ACCEPT_EULA=Y apt-get install -y msodbcsql17 -q
 
-# ── Step 2: Start FastAPI AI worker in the background (internal only) ────────
+# ── Step 2: Install Dependencies ─────────────────────────────────────────────
+cd /home/site/wwwroot
+pip install --no-cache-dir -r requirements.txt
+
+# ── Step 3: Start FastAPI AI worker in the background (internal only) ────────
 cd /home/site/wwwroot/fastapi_app
 # Binds to 127.0.0.1 — not reachable from internet, only Django can call it
 uvicorn app.main:app --host 127.0.0.1 --port 8001 --workers 1 &
