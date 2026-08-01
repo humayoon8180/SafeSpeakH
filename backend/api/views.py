@@ -8,7 +8,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import UserRegistrationSerializer
 from .models import UserProfile
 from rest_framework.permissions import AllowAny
-from rest_framework.decorators import api_view, parser_classes
+from rest_framework.decorators import api_view, parser_classes, permission_classes, authentication_classes
 from rest_framework.parsers import MultiPartParser
 import requests as http_requests
 
@@ -127,7 +127,10 @@ class UserProfileView(APIView):
 
 
 # ── 4. FACE VERIFICATION GATEWAY (Proxy to FastAPI AI Service) ────────────────
+# Public endpoint — called during registration BEFORE the user has a token
 @api_view(['POST'])
+@authentication_classes([])
+@permission_classes([AllowAny])
 @parser_classes([MultiPartParser])
 def verify_face_gateway(request):
     """
