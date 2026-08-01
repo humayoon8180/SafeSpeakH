@@ -1,26 +1,24 @@
 #!/bin/bash
 # SafeSpeak — Azure App Service Startup Script
-# Starts both FastAPI (AI worker, internal) and Django (public API gateway)
+# Starts both FastAPI (AI worker) and Django (API gateway)
 
-# ── Step 1: Install MSSQL ODBC Driver ───────────────────────────────────────
-curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add -
-curl https://packages.microsoft.com/config/debian/11/prod.list > /etc/apt/sources.list.d/mssql-release.list
-apt-get update -y
-ACCEPT_EULA=Y apt-get install -y msodbcsql17 -q
+echo "Starting SafeSpeak Deployment Script..."
 
-# ── Step 2: Install Dependencies ─────────────────────────────────────────────
-cd /home/site/wwwroot
+ROOT_DIR=$(pwd)
+echo "App running from: $ROOT_DIR"
+
+# ── Step 1: Install Dependencies ─────────────────────────────────────────────
+cd "$ROOT_DIR"
 pip install --no-cache-dir -r requirements.txt
 
-# ── Step 3: Start FastAPI AI worker in the background (internal only) ────────
-cd /home/site/wwwroot/fastapi_app
-# Binds to 127.0.0.1 — not reachable from internet, only Django can call it
+# ── Step 2: Start FastAPI AI worker in the background (internal only) ────────
+cd "$ROOT_DIR/fastapi_app"
 uvicorn app.main:app --host 127.0.0.1 --port 8001 --workers 1 &
 
-# ── Step 3: Django setup ─────────────────────────────────────────────────────
-cd /home/site/wwwroot/backend
+# ── Step 3: Django Database & Static Files Setup ─────────────────────────────
+cd "$ROOT_DIR/backend"
 python manage.py migrate --no-input
 python manage.py collectstatic --no-input
 
-# ── Step 6: Start Django public server ───────────────────────────────────────
+# ── Step 4: Start Django public server ───────────────────────────────────────
 gunicorn --bind=0.0.0.0:8000 --timeout 600 core.wsgi
