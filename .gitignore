@@ -29,3 +29,7 @@ Thumbs.db
 *.h5
 *.h5.part
 *.pb
+#Firebase
+firebase/firebase-credentials.json
+firebase/firebase-credentials.json.part
+venv

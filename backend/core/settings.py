@@ -29,7 +29,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',
-    'api',
+    'api.apps.ApiConfig',
 ]
 
 MIDDLEWARE = [
@@ -62,6 +62,8 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'core.wsgi.application'
+# WebSockets removed — using HTTP Ping/Heartbeat for presence instead
+# Gunicorn (WSGI) is used for deployment — simpler and more resource-efficient
 
 DATABASES = {
     'default': {

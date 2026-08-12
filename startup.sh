@@ -20,5 +20,5 @@ cd "$ROOT_DIR/backend"
 python manage.py migrate --no-input
 python manage.py collectstatic --no-input
 
-# ── Step 4: Start Django public server ───────────────────────────────────────
-gunicorn --bind=0.0.0.0:8000 --timeout 600 core.wsgi
+# ── Step 4: Start Django public server (WSGI via Gunicorn) ────────────────────
+gunicorn --bind=0.0.0.0:8000 --timeout 600 --workers 2 core.wsgi

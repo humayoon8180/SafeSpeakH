@@ -31,3 +31,5 @@ torch
 soundfile
 httpx
 mediapipe
+#firebase
+firebase-admin==6.5.0
