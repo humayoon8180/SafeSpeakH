@@ -30,4 +30,4 @@ Thumbs.db
 *.h5.part
 *.pb
 #Firebase
-firebase/firebase-credentials.json
+backend/firebase/firebase-credentials.json
