@@ -2,9 +2,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 from datetime import timedelta
-import json
-import firebase_admin
-from firebase_admin import credentials
+
 
 load_dotenv()
 
@@ -115,17 +113,3 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
-
-# Ab code sirf Environment Variable dhoondega (chahe Azure ho ya Laptop)
-firebase_env = os.environ.get('FIREBASE_CREDENTIALS_JSON')
-
-if not firebase_env:
-    raise ValueError("Do not have variableFIREBASE_CREDENTIALS_JSON")
-
-# Variable se JSON utha kar Firebase ko de dein
-cert_dict = json.loads(firebase_env)
-cred = credentials.Certificate(cert_dict)
-
-# Firebase initialize karein
-if not firebase_admin._apps:
-    firebase_admin.initialize_app(cred)
