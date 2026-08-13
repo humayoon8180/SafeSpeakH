@@ -373,14 +373,30 @@ class InitiateCallView(APIView):
             current_timestamp = now.strftime("%H:%M:%S %m/%d/%Y")
 
             fcm_message = messaging.Message(
+                # notification block: makes Android OS wake the app
+                # and show a system tray notification even if the app
+                # is in the background or completely killed.
+                notification=messaging.Notification(
+                    title="Incoming Call",
+                    body="Someone wants to talk to you on SafeSpeak!",
+                ),
+                # data block: carries the actual call metadata that
+                # the Flutter app reads to join the correct room.
                 data={
                     "caller_id": str(caller_id),
                     "room_id": str(room_id),
                     "sent_at": current_timestamp,
                 },
                 android=messaging.AndroidConfig(
-                    ttl=datetime.timedelta(seconds=15),
-                    priority="high"
+                    # 30 seconds gives enough time for slow networks
+                    # and Doze mode to wake up and deliver the message.
+                    ttl=datetime.timedelta(seconds=30),
+                    priority="high",
+                    notification=messaging.AndroidNotification(
+                        channel_id="incoming_call_channel",
+                        priority="max",
+                        default_vibrate_timings=True,
+                    ),
                 ),
                 token=fcm_token,
             )
