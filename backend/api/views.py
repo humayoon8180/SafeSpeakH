@@ -29,10 +29,17 @@ class RegisterView(APIView):
         serializer = UserRegistrationSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
-            
+
+            # Create UserActiva row for this user so they are
+            # immediately visible to the matchmaking system.
+            UserActiva.objects.get_or_create(
+                user_id=user.id,
+                defaults={'is_active': False, 'is_on_call': False}
+            )
+
             # Signup successful hone par foran token generate karna
             refresh = RefreshToken.for_user(user)
-            
+
             # Standard Format as requested by frontend
             return Response({
                 "success": True,
@@ -274,28 +281,36 @@ class InitiateCallView(APIView):
  
         with transaction.atomic():
             # -----------------------------------------------------------
-            # STEP 2: Housekeeping — sync is_active based on freshness,
-            # then clean up genuinely stale presence rows.
+            # STEP 1: Housekeeping — for every user in Active_User,
+            # use update_or_create so users without a UserActiva row
+            # (e.g. registered before this fix) get one automatically.
+            # Mark fresh pingers active, stale pingers inactive.
             # -----------------------------------------------------------
-            stale_user_ids = list(
+            fresh_ping_ids = list(
+                Active_User.objects
+                .filter(last_ping_time__gte=thirty_seconds_ago)
+                .values_list('user_id', flat=True)
+            )
+            stale_ping_ids = list(
                 Active_User.objects
                 .filter(last_ping_time__lt=thirty_seconds_ago)
                 .values_list('user_id', flat=True)
             )
-            if stale_user_ids:
-                UserActiva.objects.filter(user_id__in=stale_user_ids).update(is_active=False)
-                Active_User.objects.filter(user_id__in=stale_user_ids).delete()
- 
-            fresh_user_ids = Active_User.objects.filter(
-                last_ping_time__gte=thirty_seconds_ago
-            ).values_list('user_id', flat=True)
-            UserActiva.objects.filter(user_id__in=fresh_user_ids, is_active=False).update(is_active=True)
- 
+
+            # Ensure every fresh pinger has an active UserActiva row.
+            for uid in fresh_ping_ids:
+                UserActiva.objects.update_or_create(
+                    user_id=uid,
+                    defaults={'is_active': True}
+                )
+
+            # Mark stale pingers inactive and remove from Active_User.
+            if stale_ping_ids:
+                UserActiva.objects.filter(user_id__in=stale_ping_ids).update(is_active=False)
+                Active_User.objects.filter(user_id__in=stale_ping_ids).delete()
+
             # -----------------------------------------------------------
-            # STEP 3/4: Make sure the caller isn't already on a call,
-            # then find a free, present candidate and lock BOTH users.
-            # select_for_update(skip_locked=True) still protects against
-            # two different callers grabbing the same candidate at once.
+            # STEP 2: Make sure the caller isn't already on a call.
             # -----------------------------------------------------------
             caller_status = UserActiva.objects.select_for_update().filter(user_id=caller_id).first()
             if caller_status and caller_status.is_on_call:
@@ -303,27 +318,40 @@ class InitiateCallView(APIView):
                     {"success": False, "message": "You are already on a call."},
                     status=400
                 )
- 
-            free_user_ids = UserActiva.objects.filter(is_on_call=False).values('user_id')
- 
+
+            # -----------------------------------------------------------
+            # STEP 3: Find a candidate who is:
+            #   - actively pinging (in Active_User with fresh ping)
+            #   - not on a call (UserActiva.is_on_call=False)
+            #   - not the caller themselves
+            # This query works purely from Active_User — no cross-table
+            # filter needed since we just synced UserActiva above.
+            # -----------------------------------------------------------
+            busy_user_ids = list(
+                UserActiva.objects
+                .filter(is_on_call=True)
+                .values_list('user_id', flat=True)
+            )
+
             candidate = (
                 Active_User.objects
                 .select_for_update(skip_locked=True)
-                .filter(user_id__in=free_user_ids)
+                .filter(last_ping_time__gte=thirty_seconds_ago)
                 .exclude(user_id=caller_id)
+                .exclude(user_id__in=busy_user_ids)
                 .order_by('?')
                 .first()
             )
- 
+
             if not candidate:
                 return Response(
                     {"success": False, "message": "No active user found right now."},
                     status=404
                 )
- 
+
             target_user_id = candidate.user_id
- 
-            # Lock BOTH the caller and the candidate together.
+
+            # Lock BOTH the caller and the candidate.
             # Neither is removed from Active_User.
             UserActiva.objects.filter(user_id__in=[caller_id, target_user_id]).update(
                 is_on_call=True,
