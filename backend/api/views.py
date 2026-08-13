@@ -14,7 +14,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from .models import UserProfile, FCMDevice, UserActiva
 
 from .serializers import UserRegistrationSerializer
-
+from django.utils import timezone
 import datetime
 from dateutil.parser import parse
 from firebase_admin import messaging
@@ -185,7 +185,7 @@ class SetFCMTokenView(APIView):
     def post(self, request):
         user_id = request.data.get('user_id')
         fcm_token = request.data.get('fcmToken')
-        device_type = request.data.get('device_type') # Maslan: 'android' ya 'ios'
+        device_type = request.data.get('device_type', 'android') # Default to android if not provided
 
         # Validation: check karein ke zaroori data bheja gaya hai ya nahi
         if not user_id or not fcm_token:
@@ -218,41 +218,39 @@ class SetFCMTokenView(APIView):
 
 ##Ping Api Request 
 class PingView(APIView):
-    # JWT authentication bypass 
-    permission_classes = []
+    permission_classes = [] 
 
-    def put(self, request):
+    def put(self, request): 
         user_id = request.data.get('user_id')
-        ping_at_str = request.data.get('ping_at')  # Flutter se aane wala time
+        
+        # Note: Ab hum yahan request.data.get('ping_at') nahi mangwa rahe
 
-        if not user_id or not ping_at_str:
-            return Response({"success": False, "message": "user_id and ping_at are required"}, status=400)
+        if not user_id:
+            return Response({"success": False, "message": "user_id is required."}, status=400)
 
         try:
-            # String time ko Python DateTime mein convert karna
-            ping_time = parse(ping_at_str)
+            # ==========================================
+            # NAYA CODE: Backend ka apna live time
+            # ==========================================
+            ping_time = timezone.now()
             
-            # Active_User table mein user save ya update karna
+            # Database mein update karein
             Active_User.objects.update_or_create(
                 user_id=user_id,
                 defaults={'last_ping_time': ping_time}
             )
             
-            return Response({"success": True, "message": "Ping received successfully"}, status=200)
-            
+            return Response({"success": True, "message": "Ping Recived Successfully"}, status=200)
+
         except Exception as e:
             return Response({"success": False, "message": str(e)}, status=500)
-
-
 
 
 ##Call/initiate / api
 
 class InitiateCallView(APIView):
-    # NOTE: No access token check anymore — user_id is trusted directly
-    # from the request body. Anyone who knows another user's user_id can
-    # impersonate them on this endpoint. Fine for testing, but this
-    # should go back to token-based auth before production.
+    # user_id comes directly from the request body, no access token
+    # required for this endpoint (matches the ping endpoint's pattern).
     permission_classes = [AllowAny]
  
     def post(self, request):
@@ -271,27 +269,47 @@ class InitiateCallView(APIView):
                 status=400
             )
  
-        # -----------------------------------------------------------
-        # STEP 1: Garbage collection
-        # Remove anyone from the "available" pool who stopped pinging
-        # more than 30 seconds ago. This keeps the pool honest.
-        # -----------------------------------------------------------
-        thirty_seconds_ago = timezone.now() - timedelta(seconds=30)
-        Active_User.objects.filter(last_ping_time__lt=thirty_seconds_ago).delete()
+        now = timezone.now()
+        thirty_seconds_ago = now - timedelta(seconds=30)
  
-        # -----------------------------------------------------------
-        # STEP 2: Atomic matching + locking
-        # Everything in this block runs as ONE database transaction.
-        # select_for_update(skip_locked=True) makes sure that if two
-        # callers hit this endpoint at the exact same moment, they
-        # can NEVER both pick the same candidate. The second caller's
-        # query will simply skip any row the first caller has already
-        # locked and move on to the next available candidate.
-        # -----------------------------------------------------------
         with transaction.atomic():
+            # -----------------------------------------------------------
+            # STEP 2: Housekeeping — sync is_active based on freshness,
+            # then clean up genuinely stale presence rows.
+            # -----------------------------------------------------------
+            stale_user_ids = list(
+                Active_User.objects
+                .filter(last_ping_time__lt=thirty_seconds_ago)
+                .values_list('user_id', flat=True)
+            )
+            if stale_user_ids:
+                UserActiva.objects.filter(user_id__in=stale_user_ids).update(is_active=False)
+                Active_User.objects.filter(user_id__in=stale_user_ids).delete()
+ 
+            fresh_user_ids = Active_User.objects.filter(
+                last_ping_time__gte=thirty_seconds_ago
+            ).values_list('user_id', flat=True)
+            UserActiva.objects.filter(user_id__in=fresh_user_ids, is_active=False).update(is_active=True)
+ 
+            # -----------------------------------------------------------
+            # STEP 3/4: Make sure the caller isn't already on a call,
+            # then find a free, present candidate and lock BOTH users.
+            # select_for_update(skip_locked=True) still protects against
+            # two different callers grabbing the same candidate at once.
+            # -----------------------------------------------------------
+            caller_status = UserActiva.objects.select_for_update().filter(user_id=caller_id).first()
+            if caller_status and caller_status.is_on_call:
+                return Response(
+                    {"success": False, "message": "You are already on a call."},
+                    status=400
+                )
+ 
+            free_user_ids = UserActiva.objects.filter(is_on_call=False).values('user_id')
+ 
             candidate = (
                 Active_User.objects
                 .select_for_update(skip_locked=True)
+                .filter(user_id__in=free_user_ids)
                 .exclude(user_id=caller_id)
                 .order_by('?')
                 .first()
@@ -305,78 +323,69 @@ class InitiateCallView(APIView):
  
             target_user_id = candidate.user_id
  
-            # Remove from the matching pool so nobody else can pick them,
-            # and mark them as on-call in the permanent status table.
-            candidate.delete()
-            UserActiva.objects.filter(user_id=target_user_id).update(
+            # Lock BOTH the caller and the candidate together.
+            # Neither is removed from Active_User.
+            UserActiva.objects.filter(user_id__in=[caller_id, target_user_id]).update(
                 is_on_call=True,
-                call_locked_at=timezone.now(),
+                call_locked_at=now,
             )
- 
-        # -----------------------------------------------------------
-        # STEP 3: Fetch the candidate's FCM token
-        # If this fails for any reason, we MUST release the lock we
-        # just took above, otherwise that user gets stuck as
-        # "on call" forever with no actual call happening.
+ # -----------------------------------------------------------
+        # STEP 5: Fetch the candidate's FCM token AND send the push,
+        # both inside ONE try/except block, so ANY unexpected failure
+        # releases both locks instead of leaving them stuck.
         # -----------------------------------------------------------
         try:
             device_profile = FCMDevice.objects.get(user_id=target_user_id)
             fcm_token = device_profile.fcm_token
- 
+
             if not fcm_token:
-                UserActiva.objects.filter(user_id=target_user_id).update(is_on_call=False)
-                return Response(
-                    {"success": False, "message": "Partner has no FCM token."},
-                    status=404
-                )
+                raise ValueError("Partner has no FCM token.")
+
+            get_firebase_app()
+            current_timestamp = now.strftime("%H:%M:%S %m/%d/%Y")
+
+            fcm_message = messaging.Message(
+                data={
+                    "caller_id": str(caller_id),
+                    "room_id": str(room_id),
+                    "sent_at": current_timestamp,
+                },
+                android=messaging.AndroidConfig(
+                    ttl=datetime.timedelta(seconds=15),
+                    priority="high"
+                ),
+                token=fcm_token,
+            )
+            messaging.send(fcm_message)
+
         except FCMDevice.DoesNotExist:
-            UserActiva.objects.filter(user_id=target_user_id).update(is_on_call=False)
+            UserActiva.objects.filter(user_id__in=[caller_id, target_user_id]).update(is_on_call=False)
             return Response(
                 {"success": False, "message": "Partner profile not found."},
                 status=404
             )
- 
-        # -----------------------------------------------------------
-        # STEP 4: Build and send the Firebase notification
-        # Only 3 data fields, as requested — caller_id, room_id, sent_at.
-        # No "type" field, keeps the payload as light as possible.
-        # -----------------------------------------------------------
-        get_firebase_app()
-        current_timestamp = int(datetime.datetime.now().timestamp())
- 
-        fcm_message = messaging.Message(
-            data={
-                "caller_id": str(caller_id),
-                "room_id": str(room_id),
-                "sent_at": str(current_timestamp),
-            },
-            android=messaging.AndroidConfig(
-                ttl=datetime.timedelta(seconds=15),
-                priority="high"
-            ),
-            token=fcm_token,
-        )
- 
-        try:
-            messaging.send(fcm_message)
+        except ValueError as e:
+            UserActiva.objects.filter(user_id__in=[caller_id, target_user_id]).update(is_on_call=False)
+            return Response(
+                {"success": False, "message": str(e)},
+                status=404
+            )
         except messaging.UnregisteredError:
-            # Token is dead — release the lock AND clean up the bad token
-            # so future calls don't keep trying to reach this device.
-            UserActiva.objects.filter(user_id=target_user_id).update(is_on_call=False)
+            UserActiva.objects.filter(user_id__in=[caller_id, target_user_id]).update(is_on_call=False)
             FCMDevice.objects.filter(user_id=target_user_id).delete()
             return Response(
                 {"success": False, "message": "Partner's token expired."},
                 status=410
             )
         except Exception as e:
-            UserActiva.objects.filter(user_id=target_user_id).update(is_on_call=False)
+            UserActiva.objects.filter(user_id__in=[caller_id, target_user_id]).update(is_on_call=False)
             return Response(
-                {"success": False, "message": str(e)},
+                {"success": False, "message": f"Call setup failed: {str(e)}"},
                 status=500
             )
- 
+
         # -----------------------------------------------------------
-        # STEP 5: Success — tell User A who they're calling
+        # STEP 6: Success — tell User A who they're calling
         # -----------------------------------------------------------
         return Response({
             "success": True,
