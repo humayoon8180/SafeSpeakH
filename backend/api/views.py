@@ -12,7 +12,9 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.decorators import api_view, parser_classes, permission_classes, authentication_classes
 from rest_framework_simplejwt.tokens import RefreshToken
 from .models import UserProfile, FCMDevice, UserActiva
-
+import time
+import os
+from agora_token_builder import RtcTokenBuilder
 from .serializers import UserRegistrationSerializer
 from django.utils import timezone
 import datetime
@@ -20,7 +22,7 @@ from dateutil.parser import parse
 from firebase_admin import messaging
 from .firebase_config import get_firebase_app
 from .models import Active_User
-PING_TIMEOUT_SECONDS = 20
+
 
 # 1. REGISTER API
 class RegisterView(APIView):
@@ -439,3 +441,56 @@ class InitiateCallView(APIView):
                 "room_id": room_id
             }
         }, status=200)
+
+##Agora Token Generate api
+class GenerateAgoraTokenView(APIView):
+    def post(self, request):
+        # 1. Frontend se room_id lena
+        channel_name = request.data.get('room_id') 
+        
+        # 2. Agar frontend uid na bheje, toh 0 set kar do (Random assign ke liye)
+        uid = request.data.get('uid', 0) 
+
+        if not channel_name:
+            return Response({"success": False, "error": "room_id is required"}, status=400)
+
+        # ==========================================
+        # 3. .ENV FILE SE KEYS UTHANA
+        # ==========================================
+        app_id = os.environ.get('AGORA_APP_ID')
+        app_certificate = os.environ.get('AGORA_APP_CERTIFICATE')
+
+        # Agar .env mein keys nahi milin, toh error do taake debugging asaan ho
+        if not app_id or not app_certificate:
+            return Response({
+                "success": False, 
+                "error": "Backend configuration error: Agora keys missing in .env file"
+            }, status=500)
+
+        # 4. Token ki settings (1 ghanta expiry)
+        expiration_time_in_seconds = 3600
+        current_timestamp = int(time.time())
+        privilege_expired_ts = current_timestamp + expiration_time_in_seconds
+        role = 1  # 1 = Broadcaster (Audio/Video bhejne aur lene ke liye)
+
+        # 5. Token Generate karna
+        try:
+            token = RtcTokenBuilder.buildTokenWithUid(
+                app_id, 
+                app_certificate, 
+                channel_name, 
+                int(uid), 
+                role, 
+                privilege_expired_ts
+            )
+            
+            # 6. Flutter ko response dena
+            return Response({
+                "success": True,
+                "token": token,
+                "room_id": channel_name,
+                "uid": uid
+            }, status=200)
+            
+        except Exception as e:
+            return Response({"success": False, "error": str(e)}, status=500)   

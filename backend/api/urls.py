@@ -7,7 +7,8 @@ from .views import (
     verify_face_gateway,
     PingView,
     InitiateCallView,
-    SetFCMTokenView
+    SetFCMTokenView,
+    GenerateAgoraTokenView
 )
 
 urlpatterns = [
@@ -21,4 +22,6 @@ urlpatterns = [
     # NEW: Atomic find + lock + notify (recommended, fixes race condition)
     path('call/initiate/',   InitiateCallView.as_view(),       name='call-initiate'),
     path('set/fcm/', SetFCMTokenView.as_view(), name='set-fcm'),
+
+   path('agora/generate-token/', GenerateAgoraTokenView.as_view(), name='generate_agora_token')
 ]
