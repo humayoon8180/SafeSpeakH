@@ -494,3 +494,23 @@ class GenerateAgoraTokenView(APIView):
             
         except Exception as e:
             return Response({"success": False, "error": str(e)}, status=500)   
+
+##call/end/api
+class EndCallView(APIView):
+    def post(self, request):
+        # Frontend se dono users ki ID aayegi
+        user_id = request.data.get('user_id')
+
+        if not user_id:
+            return Response({"success": False, "error": "user_id is required"}, status=400)
+
+       # Sirf us specific user ka taala kholo
+        updated_count = UserActiva.objects.filter(user_id=user_id).update(
+            is_on_call=False,
+            call_locked_at=None
+        )
+
+        return Response({
+            "success": True, 
+            "message": "Call ended successfully. Users are now free!"
+        }, status=200)
