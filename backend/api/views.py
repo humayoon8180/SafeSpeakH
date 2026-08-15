@@ -313,9 +313,11 @@ class InitiateCallView(APIView):
 
             # -----------------------------------------------------------
             # STEP 2: Make sure the caller isn't already on a call.
+            # get_or_create ensures the caller gets added to UserActiva 
+            # even if they never pinged before calling!
             # -----------------------------------------------------------
-            caller_status = UserActiva.objects.select_for_update().filter(user_id=caller_id).first()
-            if caller_status and caller_status.is_on_call:
+            caller_status, _ = UserActiva.objects.select_for_update().get_or_create(user_id=caller_id)
+            if caller_status.is_on_call:
                 return Response(
                     {"success": False, "message": "You are already on a call."},
                     status=400
@@ -433,12 +435,27 @@ class InitiateCallView(APIView):
         # -----------------------------------------------------------
         # STEP 6: Success — tell User A who they're calling
         # -----------------------------------------------------------
+        try:
+            partner_profile = UserProfile.objects.get(user_id=target_user_id)
+            partner_details = {
+                "name": partner_profile.name,
+                "email": partner_profile.email,
+                "profile_image_url": partner_profile.profile_image_url,
+                "country": partner_profile.country,
+                "rating": partner_profile.rating,
+            }
+        except UserProfile.DoesNotExist:
+            partner_details = None
+        # -----------------------------------------------------------
+        # STEP 7: Success — tell User A who they're calling
+        # -----------------------------------------------------------
         return Response({
             "success": True,
             "message": "Call initiated successfully.",
             "data": {
                 "partner_id": target_user_id,
-                "room_id": room_id
+                "room_id": room_id,
+                "partner_details": partner_details
             }
         }, status=200)
 
