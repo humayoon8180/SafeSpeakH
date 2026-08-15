@@ -375,6 +375,15 @@ class InitiateCallView(APIView):
 
             get_firebase_app()
             current_timestamp = now.strftime("%H:%M:%S %m/%d/%Y")
+            # --- NEW CODE: Caller (User A) Ki Details Fetch Karein ---
+            caller_profile = UserProfile.objects.filter(user_id=caller_id).first()
+
+            # Safely extract data, fallback to defaults agar koi value DB mein na ho
+            caller_name = caller_profile.name if caller_profile and caller_profile.name else "Unknown"
+            caller_image = caller_profile.profile_image_url if caller_profile and caller_profile.profile_image_url else ""
+            caller_country = caller_profile.country if caller_profile and caller_profile.country else ""
+            caller_rating = str(caller_profile.rating) if caller_profile else "0.0"
+            # ---------------------------------------------------------
 
             fcm_message = messaging.Message(
                 # notification block: makes Android OS wake the app
@@ -382,7 +391,7 @@ class InitiateCallView(APIView):
                 # is in the background or completely killed.
                 notification=messaging.Notification(
                     title="Incoming Call",
-                    body="Someone wants to talk to you on SafeSpeak!",
+                    body=f"{caller_name} wants to talk to you on SafeSpeak!",
                 ),
                 # data block: carries the actual call metadata that
                 # the Flutter app reads to join the correct room.
@@ -390,6 +399,10 @@ class InitiateCallView(APIView):
                     "caller_id": str(caller_id),
                     "room_id": str(room_id),
                     "sent_at": current_timestamp,
+                    "caller_name": caller_name,
+                    "caller_image": caller_image,
+                    "caller_country": caller_country,
+                    "caller_rating": caller_rating,
                 },
                 android=messaging.AndroidConfig(
                     # 30 seconds gives enough time for slow networks
