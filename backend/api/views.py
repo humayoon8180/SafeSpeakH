@@ -79,7 +79,7 @@ class LoginView(APIView):
 
         if not email or not password:
             return Response({
-                "status":  "fail",
+                "success": False, 
                 "message": "Email and password are required."
             }, status=status.HTTP_400_BAD_REQUEST)
 
@@ -91,7 +91,7 @@ class LoginView(APIView):
         if user is not None:
             refresh = RefreshToken.for_user(user)
             return Response({
-                "status":  "success",
+                "success": True,
                 "message": "Login successful",
                 "data": {
                     "access_token":  str(refresh.access_token),
@@ -105,7 +105,7 @@ class LoginView(APIView):
             }, status=status.HTTP_200_OK)
 
         return Response({
-            "status":  "fail",
+            "success": False,
             "message": "Email or password is incorrect."
         }, status=status.HTTP_401_UNAUTHORIZED)
 
@@ -121,12 +121,12 @@ class UserProfileView(APIView):
         except Exception:
             # Handle Server Error 500
             return Response({
-                "status":  "fail",
+                "success": False,
                 "message": "Internal Server Error occurred while fetching profile."
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response({
-            "status": "success",
+            "success": True,
             "user": {
                 "id":                 user.id,
                 "name":               user.first_name,
@@ -167,7 +167,9 @@ def verify_face_gateway(request):
     live_image = request.FILES.get("live_image")
     if not live_image:
         return Response(
-            {"status": "fail", "message": "No image uploaded. Please provide 'live_image'."},
+            {"success": False,
+             "message": "No image uploaded. Please provide 'live_image'."},
+             
             status=status.HTTP_400_BAD_REQUEST
         )
 
@@ -180,7 +182,7 @@ def verify_face_gateway(request):
     except http_requests.exceptions.RequestException:
         return Response(
             {
-                "status": "fail",
+                "success": False,
                 "message": "AI verification service is currently unavailable. Please try again later."
             },
             status=status.HTTP_503_SERVICE_UNAVAILABLE
@@ -393,8 +395,6 @@ class InitiateCallView(APIView):
                     title="Incoming Call",
                     body=f"{caller_name} wants to talk to you on SafeSpeak!",
                 ),
-                # data block: carries the actual call metadata that
-                # the Flutter app reads to join the correct room.
                 data={
                     "caller_id": str(caller_id),
                     "room_id": str(room_id),
@@ -490,14 +490,7 @@ class GenerateAgoraTokenView(APIView):
         app_id = os.environ.get('AGORA_APP_ID')
         app_certificate = os.environ.get('AGORA_APP_CERTIFICATE')
 
-        # Agar .env mein keys nahi milin, toh error do taake debugging asaan ho
-        if not app_id or not app_certificate:
-            return Response({
-                "success": False, 
-                "error": "Backend configuration error: Agora keys missing in .env file"
-            }, status=500)
-
-        # 4. Token ki settings (1 ghanta expiry)
+        # 4Token ki settings (1 ghanta expiry)
         expiration_time_in_seconds = 3600
         current_timestamp = int(time.time())
         privilege_expired_ts = current_timestamp + expiration_time_in_seconds
