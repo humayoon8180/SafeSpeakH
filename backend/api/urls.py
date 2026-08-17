@@ -6,6 +6,7 @@ from .views import (
     UserProfileView,
     verify_face_gateway,
     verify_voice_gateway,
+    fastapi_debug_log,
     PingView,
     InitiateCallView,
     SetFCMTokenView,
@@ -20,6 +21,7 @@ urlpatterns = [
     path('verify-face/',     verify_face_gateway,              name='verify-face'),
     path('verify-voice/',    verify_voice_gateway,             name='verify-voice'),
     path('ping/',            PingView.as_view(),               name='ping'),
+    path('debug/fastapi-log/', fastapi_debug_log,              name='fastapi-debug-log'),
 
     # ── Matchmaking & Calling ─────────────────────────────────────────────────
     # NEW: Atomic find + lock + notify (recommended, fixes race condition)

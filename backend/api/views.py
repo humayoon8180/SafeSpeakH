@@ -229,6 +229,37 @@ def verify_voice_gateway(request):
             status=status.HTTP_503_SERVICE_UNAVAILABLE
         )
 
+# ── DEBUG: Read FastAPI crash log (REMOVE AFTER DEBUGGING) ───────────────────
+@api_view(['GET'])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def fastapi_debug_log(request):
+    """
+    GET /api/debug/fastapi-log/
+    Returns the contents of /tmp/fastapi.log so we can see why FastAPI crashed.
+    REMOVE this endpoint after debugging is complete.
+    """
+    import subprocess
+    log_path = "/tmp/fastapi.log"
+    try:
+        # Also check if uvicorn process is alive
+        ps_result = subprocess.run(["ps", "aux"], capture_output=True, text=True)
+        uvicorn_running = "uvicorn" in ps_result.stdout
+
+        if os.path.exists(log_path):
+            with open(log_path, "r") as f:
+                log_content = f.read()
+        else:
+            log_content = "Log file not found at /tmp/fastapi.log"
+
+        return Response({
+            "uvicorn_process_alive": uvicorn_running,
+            "log": log_content
+        })
+    except Exception as e:
+        return Response({"error": str(e)}, status=500)
+
+
 ##SetFcm Token Recived From Flutter
 class SetFCMTokenView(APIView):
     # JWT authentication filhal bypass kar di hai
