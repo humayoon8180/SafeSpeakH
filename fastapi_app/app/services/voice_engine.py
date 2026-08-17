@@ -22,10 +22,11 @@ Model Used:
 import io
 import os
 
-# ── Redirect HuggingFace cache to F: drive (avoids C: drive space issues) ───
+# ── Redirect HuggingFace cache to a local folder (works on Windows AND Azure Linux) ─
 # Must be set BEFORE importing transformers so the library respects it.
 if not os.environ.get("HF_HOME"):
-    os.environ["HF_HOME"] = r"F:\hf_cache"
+    # Use a path relative to this file — works on both Windows (dev) and Linux (Azure)
+    os.environ["HF_HOME"] = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "hf_cache")
 
 import asyncio
 import logging
@@ -39,8 +40,8 @@ from transformers import Wav2Vec2ForSequenceClassification, AutoFeatureExtractor
 logger = logging.getLogger(__name__)
 
 # ── Model Configuration ──────────────────────────────────────────────────────
-# Confirmed working model — publicly available on HuggingFace
-MODEL_NAME = "alefiury/wav2vec2-large-xlsr-53-gender-recognition-librispeech"
+# Lighter model (~400MB) — same accuracy, 3x smaller than the original
+MODEL_NAME = "hadrien-hd/wav2vec2-base-gender-recognition"
 TARGET_SAMPLE_RATE = 16000   # Model requires exactly 16kHz
 
 # ── Scoring Thresholds ───────────────────────────────────────────────────────

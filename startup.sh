@@ -13,7 +13,12 @@ pip install --no-cache-dir -r requirements.txt
 
 # ── Step 2: Start FastAPI AI worker in the background (internal only) ────────
 cd "$ROOT_DIR/fastapi_app"
-uvicorn app.main:app --host 127.0.0.1 --port 8001 --workers 1 &
+# Log FastAPI output to a file so Azure log stream shows any crashes
+uvicorn app.main:app --host 127.0.0.1 --port 8001 --workers 1 >> /tmp/fastapi.log 2>&1 &
+echo "FastAPI started in background (port 8001). Logs: /tmp/fastapi.log"
+
+# Wait 5 seconds to give FastAPI time to boot before Django starts accepting requests
+sleep 5
 
 # ── Step 3: Django Database & Static Files Setup ─────────────────────────────
 cd "$ROOT_DIR/backend"
