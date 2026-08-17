@@ -1,9 +1,10 @@
 # api/serializers.py
 # Register serializer with updated error response and verification fields
 
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
-from .models import UserProfile
+
+User = get_user_model()
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
     email    = serializers.EmailField(required=True)
@@ -43,7 +44,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         password   = validated_data['password']
         first_name = validated_data['first_name']
         
-        # Profile data alag karna taake User creation mein masla na ho
+        # Profile data directly saved in the new custom User model
         face_verification = validated_data.pop('face_verification', False)
         voice_verification = validated_data.pop('voice_verification', False)
         voice_score = validated_data.pop('voice_score', 0.0)
@@ -52,14 +53,10 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
             username   = email,
             email      = email,
             password   = password,
-            first_name = first_name
+            first_name = first_name,
+            face_verification = face_verification,
+            voice_verification = voice_verification,
+            voice_score = voice_score
         )
 
-        # Profile banate waqt frontend wala verification data save karna
-        UserProfile.objects.create(
-            user=user,
-            face_verification=face_verification,
-            voice_verification=voice_verification,
-            voice_score=voice_score
-        )
         return user

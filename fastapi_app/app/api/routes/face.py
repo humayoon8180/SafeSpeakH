@@ -27,15 +27,6 @@ async def verify_face(
     Returns structured JSON based on face detection and gender check.
     """
 
-    # ── Validate MIME types ─────────────────────────────────────────────────
-    ALLOWED_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
-    
-    if live_image.content_type not in ALLOWED_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid file type. Allowed: JPEG, PNG, WebP. Received: {live_image.content_type}"
-        )
-
     # ── Run the AI pipeline ─────────────────────────────────────────────────
     try:
         # We pass the UploadFile directly; reading and compression is handled in the engine.

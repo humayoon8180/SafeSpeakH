@@ -21,7 +21,9 @@ async def lifespan(app: FastAPI):
     """
     print("[SafeSpeak AI] Preloading AI models — please wait...")
     from app.services.face_engine import preload_models as preload_face
+    from app.services.voice_engine import preload_models as preload_voice
     preload_face()
+    preload_voice()
     print("[SafeSpeak AI] All models loaded. Server ready.")
     yield
     # Shutdown cleanup (if needed in future)
@@ -50,7 +52,7 @@ app.add_middleware(
 
 # ── Routers ─────────────────────────────────────────────────────────────────
 app.include_router(face.router,  prefix="/verify", tags=["Face Verification"])
-#app.include_router(voice.router, prefix="/verify", tags=["Voice Verification"])
+app.include_router(voice.router, prefix="/verify", tags=["Voice Verification"])
 
 
 # ── Health check ────────────────────────────────────────────────────────────

@@ -11,7 +11,7 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.decorators import api_view, parser_classes, permission_classes, authentication_classes
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import UserProfile, FCMDevice, UserActiva
+from .models import FCMDevice, UserActiva
 import time
 import os
 from agora_token_builder import RtcTokenBuilder
@@ -60,8 +60,18 @@ class RegisterView(APIView):
                 }
             }, status=status.HTTP_201_CREATED)
 
-        # Formatting Errors 
+        # Formatting Errors
         errors = serializer.errors
+
+        # If email already exists, return a clean message only
+        if 'email' in errors:
+            email_error = str(errors['email'][0])
+            if 'already exists' in email_error.lower():
+                return Response({
+                    "success": False,
+                    "message": "User with this email already exists."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
         first_error = next(iter(errors.values()))[0]
         flat_errors = {field: msgs[0] for field, msgs in errors.items()}
         return Response({
@@ -116,15 +126,6 @@ class UserProfileView(APIView):
     def get(self, request):
         user = request.user
 
-        try:
-            profile, _ = UserProfile.objects.get_or_create(user=user)
-        except Exception:
-            # Handle Server Error 500
-            return Response({
-                "success": False,
-                "message": "Internal Server Error occurred while fetching profile."
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
         return Response({
             "success": True,
             "user": {
@@ -132,16 +133,16 @@ class UserProfileView(APIView):
                 "name":               user.first_name,
                 "email":              user.email,
                 "date_joined":        user.date_joined,
-                "face_verification":  profile.face_verification,
-                "voice_verification": profile.voice_verification,
-                "voice_score":        profile.voice_score,
+                "face_verification":  user.face_verification,
+                "voice_verification": user.voice_verification,
+                "voice_score":        user.voice_score,
                 # --- New Fields Has been added---
-                "total_calls":        profile.total_calls,
-                "profile_image_url":  profile.profile_image_url,
-                "rating":             profile.rating,
-                "proficiency_level":  profile.proficiency_level,
-                "reports":            profile.reports,
-                "country":            profile.country
+                "total_calls":        user.total_calls,
+                "profile_image_url":  user.profile_image_url,
+                "rating":             user.rating,
+                "proficiency_level":  user.proficiency_level,
+                "reports":            user.reports,
+                "country":            user.country
             }
         }, status=status.HTTP_200_OK)
 
@@ -169,7 +170,7 @@ def verify_face_gateway(request):
         return Response(
             {"success": False,
              "message": "No image uploaded. Please provide 'live_image'."},
-             
+
             status=status.HTTP_400_BAD_REQUEST
         )
 
@@ -378,13 +379,15 @@ class InitiateCallView(APIView):
             get_firebase_app()
             current_timestamp = now.strftime("%H:%M:%S %m/%d/%Y")
             # --- NEW CODE: Caller (User A) Ki Details Fetch Karein ---
-            caller_profile = UserProfile.objects.filter(user_id=caller_id).first()
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            caller_user = User.objects.filter(id=caller_id).first()
 
             # Safely extract data, fallback to defaults agar koi value DB mein na ho
-            caller_name = caller_profile.name if caller_profile and caller_profile.name else "Unknown"
-            caller_image = caller_profile.profile_image_url if caller_profile and caller_profile.profile_image_url else ""
-            caller_country = caller_profile.country if caller_profile and caller_profile.country else ""
-            caller_rating = str(caller_profile.rating) if caller_profile else "0.0"
+            caller_name = caller_user.first_name if caller_user and caller_user.first_name else "Unknown"
+            caller_image = caller_user.profile_image_url if caller_user and caller_user.profile_image_url else ""
+            caller_country = caller_user.country if caller_user and caller_user.country else ""
+            caller_rating = str(caller_user.rating) if caller_user else "0.0"
             # ---------------------------------------------------------
 
             fcm_message = messaging.Message(
@@ -449,16 +452,27 @@ class InitiateCallView(APIView):
         # STEP 6: Success — tell User A who they're calling
         # -----------------------------------------------------------
         try:
-            partner_profile = UserProfile.objects.get(user_id=target_user_id)
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            partner = User.objects.get(id=target_user_id)
+            
+            # --- Safely Extract Partner Details (Fallback check applied) ---
+            partner_name = partner.first_name if partner.first_name else "Unknown"
+            partner_country = partner.country if partner.country else "Unknown"
+            partner_image = partner.profile_image_url if partner.profile_image_url else ""
+            partner_rating = partner.rating if partner.rating else 0.0
+            
             partner_details = {
-                "name": partner_profile.name,
-                "email": partner_profile.email,
-                "profile_image_url": partner_profile.profile_image_url,
-                "country": partner_profile.country,
-                "rating": partner_profile.rating,
+                "name": partner_name,
+                "email": partner.email,
+                "profile_image_url": partner_image,
+                "country": partner_country,
+                "rating": partner_rating,
             }
-        except UserProfile.DoesNotExist:
+            
+        except User.DoesNotExist:
             partner_details = None
+
         # -----------------------------------------------------------
         # STEP 7: Success — tell User A who they're calling
         # -----------------------------------------------------------
@@ -470,7 +484,7 @@ class InitiateCallView(APIView):
                 "room_id": room_id,
                 "partner_details": partner_details
             }
-        }, status=200)
+        }, status=status.HTTP_200_OK)
 
 ##Agora Token Generate api
 class GenerateAgoraTokenView(APIView):

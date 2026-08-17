@@ -81,9 +81,8 @@ async def run_face_pipeline(image_file: UploadFile) -> dict:
     except Exception as e:
         logger.error(f"Failed to read upload file: {e}")
         return {
-            "status": "rejected",
-            "face_detected": False,
-            "reason": "Failed to read uploaded image."
+            "success": False,
+            "message": "Failed to read uploaded image.",
         }
         
     loop = asyncio.get_event_loop()
@@ -102,9 +101,8 @@ def _run_pipeline_sync(image_bytes: bytes) -> dict:
     except Exception as e:
         logger.error(f"Image decode/compress failed: {e}")
         return {
-            "status": "rejected",
-            "face_detected": False,
-            "reason": "Invalid image format or corrupted file."
+            "success": False,
+            "message": "Invalid image format or corrupted file.",
         }
 
     # Step 3 & 4: Analyze with DeepFace
@@ -128,33 +126,36 @@ def _run_pipeline_sync(image_bytes: bytes) -> dict:
         
         if is_female:
             return {
-                "status": "approved",
-                "face_detected": True,
-                "gender": dominant_gender,
-                "gender_confidence": gender_confidence,
-                "is_female": True
+                "success": True,
+                "message": "Face verified successfully.",
+                "data": {
+                    "face_detected": True,
+                    "gender": dominant_gender,
+                    "gender_confidence": gender_confidence,
+                    "face_verification": True
+                }
             }
         else:
             return {
-                "status": "rejected",
-                "face_detected": True,
-                "gender": dominant_gender,
-                "gender_confidence": gender_confidence,
-                "is_female": False,
-                "reason": "Male face detected. SafeSpeak is female-only."
+                "success": False,
+                "message": "Male face detected. SafeSpeak is female-only.",
+                "data": {
+                    "face_detected": True,
+                    "gender": dominant_gender,
+                    "gender_confidence": gender_confidence,
+                    "face_verification": False
+                }
             }
 
     except ValueError:
         # ValueError is raised by DeepFace when enforce_detection=True and no face is found
         return {
-            "status": "rejected",
-            "face_detected": False,
-            "reason": "No human face detected in the image."
+            "success": False,
+            "message": "No human face detected in the image.",
         }
     except Exception as e:
         logger.error(f"DeepFace analysis failed: {e}")
         return {
-            "status": "rejected",
-            "face_detected": False,
-            "reason": f"AI Engine error: {str(e)}"
+            "success": False,
+            "message": f"AI Engine error: {str(e)}",
         }
