@@ -234,27 +234,36 @@ def verify_voice_gateway(request):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def fastapi_debug_log(request):
-    """
-    GET /api/debug/fastapi-log/
-    Returns the contents of /tmp/fastapi.log so we can see why FastAPI crashed.
-    REMOVE this endpoint after debugging is complete.
-    """
     import subprocess
+    import socket
     log_path = "/tmp/fastapi.log"
     try:
-        # Also check if uvicorn process is alive
+        # Check 1: Is the uvicorn process running?
         ps_result = subprocess.run(["ps", "aux"], capture_output=True, text=True)
         uvicorn_running = "uvicorn" in ps_result.stdout
 
+        # Check 2: Is port 8001 actually accepting connections?
+        port_open = False
+        try:
+            sock = socket.create_connection(("127.0.0.1", 8001), timeout=2)
+            sock.close()
+            port_open = True
+        except (ConnectionRefusedError, socket.timeout, OSError):
+            port_open = False
+
+        # Check 3: Read last 80 lines of FastAPI log
         if os.path.exists(log_path):
             with open(log_path, "r") as f:
-                log_content = f.read()
+                lines = f.readlines()
+            log_tail = "".join(lines[-80:])
         else:
-            log_content = "Log file not found at /tmp/fastapi.log"
+            log_tail = "Log file not found at /tmp/fastapi.log"
 
         return Response({
             "uvicorn_process_alive": uvicorn_running,
-            "log": log_content
+            "port_8001_accepting_connections": port_open,
+            "status": "READY" if port_open else "STILL LOADING or CRASHED",
+            "log_tail": log_tail
         })
     except Exception as e:
         return Response({"error": str(e)}, status=500)
