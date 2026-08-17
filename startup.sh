@@ -9,6 +9,10 @@ echo "App running from: $ROOT_DIR"
 
 # ── Step 1: Install Dependencies ─────────────────────────────────────────────
 cd "$ROOT_DIR"
+# Install CPU-only PyTorch FIRST (Azure B2 has no GPU — this avoids downloading 2GB of CUDA packages)
+# This cuts build time from 20+ minutes back to ~7 minutes
+pip install torch --index-url https://download.pytorch.org/whl/cpu --quiet
+# Now install the rest of the requirements (torch is already satisfied, will be skipped)
 pip install --no-cache-dir -r requirements.txt
 
 # ── Step 2: Start FastAPI AI worker in the background (internal only) ────────

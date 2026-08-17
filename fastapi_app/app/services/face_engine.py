@@ -25,7 +25,8 @@ import cv2
 import numpy as np
 from PIL import Image
 from fastapi import UploadFile
-from deepface import DeepFace
+# DeepFace (TensorFlow) is imported lazily inside _run_pipeline_sync()
+# to prevent OOM crash at uvicorn startup on Azure.
 
 logger = logging.getLogger(__name__)
 
@@ -33,22 +34,10 @@ logger = logging.getLogger(__name__)
 def preload_models() -> None:
     """
     Called once at FastAPI startup via lifespan.
-    Warms up DeepFace models by running a dummy image.
-    No mediapipe imports or logic here.
+    Kept intentionally lightweight — DeepFace loads lazily on first request.
+    This prevents TensorFlow from spiking RAM at uvicorn startup on Azure.
     """
-    logger.info("Warming up DeepFace gender model...")
-    try:
-        dummy = np.zeros((224, 224, 3), dtype=np.uint8)
-        DeepFace.analyze(
-            img_path=dummy,
-            actions=["gender"],
-            detector_backend="skip",
-            enforce_detection=False,
-            silent=True
-        )
-        logger.info("DeepFace gender model ready.")
-    except Exception as e:
-        logger.warning(f"DeepFace warm-up skipped: {e}")
+    logger.info("Face engine ready. DeepFace will load on first request (lazy loading).")
 
 
 def _compress_and_convert(image_bytes: bytes) -> np.ndarray:
@@ -95,6 +84,10 @@ async def run_face_pipeline(image_file: UploadFile) -> dict:
 
 def _run_pipeline_sync(image_bytes: bytes) -> dict:
     """Synchronous pipeline executed in a thread pool."""
+
+    # ── Lazy import (TensorFlow loads only on first request, not at startup) ──
+    from deepface import DeepFace
+
     try:
         # Step 1 & 2: Decode and compress
         img_bgr = _compress_and_convert(image_bytes)

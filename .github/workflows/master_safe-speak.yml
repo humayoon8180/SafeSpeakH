@@ -29,6 +29,9 @@ jobs:
         run: |
           python -m venv antenv
           source antenv/bin/activate
+          # Install CPU-only PyTorch FIRST (Azure B2 has no GPU — avoids downloading 2GB of CUDA packages)
+          pip install torch --index-url https://download.pytorch.org/whl/cpu --quiet
+          # Install remaining dependencies (torch already satisfied, will be skipped)
           pip install --no-cache-dir -r requirements.txt
                 
       - name: Upload artifact for deployment jobs

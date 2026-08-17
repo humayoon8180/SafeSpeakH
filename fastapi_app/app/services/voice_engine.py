@@ -32,9 +32,7 @@ import asyncio
 import logging
 import numpy as np
 import soundfile as sf
-import torch
 from fastapi import UploadFile
-from transformers import Wav2Vec2ForSequenceClassification, AutoFeatureExtractor
 
 
 logger = logging.getLogger(__name__)
@@ -68,16 +66,22 @@ def preload_models() -> None:
 def _ensure_model_loaded() -> None:
     """
     Lazy loader — loads the model on the first API call if not already loaded.
-    Uses float16 + low_cpu_mem_usage to cut RAM usage by ~50%.
+    Imports torch and transformers HERE (not at module level) to prevent OOM
+    memory spike at uvicorn startup on Azure.
     """
     global _model, _feature_extractor
     if _model is not None and _feature_extractor is not None:
         return  # Already loaded — nothing to do
+
+    # ── Lazy imports (only happen on first request, not at startup) ──────────
+    import torch
+    from transformers import Wav2Vec2ForSequenceClassification, AutoFeatureExtractor
+
     logger.info(f"[Lazy Load] Loading voice gender model: {MODEL_NAME}")
     _feature_extractor = AutoFeatureExtractor.from_pretrained(MODEL_NAME)
     _model = Wav2Vec2ForSequenceClassification.from_pretrained(
         MODEL_NAME,
-        torch_dtype=torch.float16,   # Half precision: cuts RAM from ~4GB → ~2GB
+        torch_dtype=torch.float16,   # Half precision: cuts RAM usage by ~50%
         low_cpu_mem_usage=True,      # Loads layer by layer instead of all at once
     )
     _model.eval()
