@@ -189,6 +189,46 @@ def verify_face_gateway(request):
             status=status.HTTP_503_SERVICE_UNAVAILABLE
         )
 
+
+# ── 5. VOICE VERIFICATION GATEWAY (Proxy to FastAPI AI Service) ───────────────
+@api_view(['POST'])
+@authentication_classes([])
+@permission_classes([AllowAny])
+@parser_classes([MultiPartParser])
+def verify_voice_gateway(request):
+    """
+    POST /api/verify-voice/
+
+    API Gateway: Receives audio_file and face_verified from Flutter, 
+    forwards it to the FastAPI AI microservice on port 8001.
+    """
+    FASTAPI_URL = "http://127.0.0.1:8001/verify/voice/"
+
+    audio_file = request.FILES.get("audio_file")
+    user_id = request.data.get("user_id", 0)
+    face_verified = request.data.get("face_verified", "False")
+
+    if not audio_file:
+        return Response(
+            {"success": False, "message": "No audio uploaded. Please provide 'audio_file'."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        files = {"audio_file": (audio_file.name, audio_file.read(), audio_file.content_type)}
+        data = {"user_id": user_id, "face_verified": face_verified}
+        ai_response = http_requests.post(FASTAPI_URL, files=files, data=data, timeout=90)
+        return Response(ai_response.json(), status=ai_response.status_code)
+
+    except http_requests.exceptions.RequestException as e:
+        return Response(
+            {
+                "success": False,
+                "message": f"AI Voice service unavailable: {str(e)}"
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+
 ##SetFcm Token Recived From Flutter
 class SetFCMTokenView(APIView):
     # JWT authentication filhal bypass kar di hai

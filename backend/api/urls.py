@@ -5,6 +5,7 @@ from .views import (
     LoginView,
     UserProfileView,
     verify_face_gateway,
+    verify_voice_gateway,
     PingView,
     InitiateCallView,
     SetFCMTokenView,
@@ -17,6 +18,7 @@ urlpatterns = [
     path('login/',           LoginView.as_view(),              name='login'),
     path('profile/',         UserProfileView.as_view(),        name='profile'),
     path('verify-face/',     verify_face_gateway,              name='verify-face'),
+    path('verify-voice/',    verify_voice_gateway,             name='verify-voice'),
     path('ping/',            PingView.as_view(),               name='ping'),
 
     # ── Matchmaking & Calling ─────────────────────────────────────────────────
