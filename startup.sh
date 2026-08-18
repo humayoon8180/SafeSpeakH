@@ -15,8 +15,8 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu --quiet
 pip install --no-cache-dir -r requirements.txt
 # Remove GUI OpenCV — requires libxcb.so.1 (X11 display) which doesn't exist on Azure Linux
 pip uninstall -y opencv-python opencv-contrib-python 2>/dev/null || true
-# Ensure headless OpenCV is installed (works on Azure server with no display)
-pip install opencv-python-headless==5.0.0.93 --quiet
+# Use stable OpenCV 4.8.1.78 — v5.0 beta breaks DeepFace (copyMakeBorder missing)
+pip install opencv-python-headless==4.8.1.78 --quiet
 
 # ── Step 2: Start FastAPI AI worker in the background (internal only) ────────
 cd "$ROOT_DIR/fastapi_app"

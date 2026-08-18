@@ -120,9 +120,7 @@ def _get_female_score(audio_array, sample_rate: int) -> float:
         return_tensors="pt",
         padding=True
     )
-    # Cast to float16 to match the model dtype (loaded with torch_dtype=float16)
-    inputs = {k: v.to(torch.float16) if v.dtype == torch.float32 else v
-              for k, v in inputs.items()}
+    # No dtype casting needed — model and inputs are both float32
 
     # Run inference (no gradient tracking needed — saves memory)
     with torch.no_grad():
