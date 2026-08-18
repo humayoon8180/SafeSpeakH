@@ -34,9 +34,9 @@ jobs:
           # Install remaining dependencies (torch already satisfied, will be skipped)
           pip install --no-cache-dir -r requirements.txt
           # Remove GUI OpenCV — it requires libxcb.so.1 which doesn't exist on Azure Linux server
-          pip uninstall -y opencv-python opencv-contrib-python || true
-          # Use stable OpenCV 4.8.1.78 — v5.0 beta breaks DeepFace (copyMakeBorder missing)
-          pip install opencv-python-headless==4.8.1.78 --quiet
+          pip uninstall -y opencv-python opencv-contrib-python opencv-python-headless || true
+          # Use stable OpenCV 4.8.1.78 and force reinstall to clear any broken pip cache
+          pip install --force-reinstall --no-cache-dir --no-deps opencv-python-headless==4.8.1.78 --quiet
                 
       - name: Upload artifact for deployment jobs
         uses: actions/upload-artifact@v4
