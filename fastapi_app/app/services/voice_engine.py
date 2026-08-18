@@ -36,8 +36,8 @@ from fastapi import UploadFile
 logger = logging.getLogger(__name__)
 
 # ── Model Configuration ──────────────────────────────────────────────────────
-# Lighter model (~400MB) — same accuracy, 3x smaller than the original
-MODEL_NAME = "hadrien-hd/wav2vec2-base-gender-recognition"
+# Verified working HuggingFace model for gender recognition
+MODEL_NAME = "alefiury/wav2vec2-large-xlsr-53-gender-recognition-librispeech"
 TARGET_SAMPLE_RATE = 16000   # Model requires exactly 16kHz
 
 # ── Scoring Thresholds ───────────────────────────────────────────────────────
@@ -79,8 +79,8 @@ def _ensure_model_loaded() -> None:
     _feature_extractor = AutoFeatureExtractor.from_pretrained(MODEL_NAME)
     _model = Wav2Vec2ForSequenceClassification.from_pretrained(
         MODEL_NAME,
-        torch_dtype=torch.float16,   # Half precision: cuts RAM usage by ~50%
-        low_cpu_mem_usage=True,      # Loads layer by layer instead of all at once
+        torch_dtype=torch.float32,  # float32 for CPU — more reliable than float16 on CPU-only
+        low_cpu_mem_usage=True,     # Loads layer by layer to reduce peak RAM usage
     )
     _model.eval()
     logger.info("[Lazy Load] Voice gender model loaded and ready.")

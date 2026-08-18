@@ -35,10 +35,9 @@ def preload_models() -> None:
 def _compress_and_convert(image_bytes: bytes):
     """
     Reads image bytes, applies smart compression if width > 1024,
-    and returns an RGB numpy array converted to BGR for DeepFace/OpenCV.
-    All imports are inside this function (lazy).
+    and returns a BGR numpy array for DeepFace.
+    Uses only PIL + numpy — no cv2 needed in our code.
     """
-    import cv2
     import numpy as np
     from PIL import Image
 
@@ -50,8 +49,10 @@ def _compress_and_convert(image_bytes: bytes):
         pil_img.thumbnail((MAX_DIMENSION, MAX_DIMENSION), Image.Resampling.LANCZOS)
         logger.info(f"Auto-compressed image from {width}x{height} to {pil_img.width}x{pil_img.height}")
 
-    bgr_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-    return bgr_img
+    # Convert RGB → BGR using numpy (no cv2 needed — avoids libxcb dependency)
+    rgb_array = np.array(pil_img)
+    bgr_array = rgb_array[:, :, ::-1].copy()  # Flip channel order: RGB → BGR
+    return bgr_array
 
 
 async def run_face_pipeline(image_file) -> dict:
@@ -76,7 +77,7 @@ def _run_pipeline_sync(image_bytes: bytes) -> dict:
         img_bgr = _compress_and_convert(image_bytes)
     except Exception as e:
         logger.error(f"Image decode/compress failed: {e}")
-        return {"success": False, "message": "Invalid image format or corrupted file."}
+        return {"success": False, "message": f"Invalid image. Please send a valid JPG or PNG file. ({str(e)})"}
 
     try:
         analysis = DeepFace.analyze(
