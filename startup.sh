@@ -9,11 +9,14 @@ echo "App running from: $ROOT_DIR"
 
 # ── Step 1: Install Dependencies ─────────────────────────────────────────────
 cd "$ROOT_DIR"
-# Install CPU-only PyTorch FIRST (Azure B2 has no GPU — this avoids downloading 2GB of CUDA packages)
-# This cuts build time from 20+ minutes back to ~7 minutes
+# Install CPU-only PyTorch FIRST (Azure B2 has no GPU — avoids 2GB CUDA download)
 pip install torch --index-url https://download.pytorch.org/whl/cpu --quiet
-# Now install the rest of the requirements (torch is already satisfied, will be skipped)
+# Install all other dependencies
 pip install --no-cache-dir -r requirements.txt
+# Remove GUI OpenCV — requires libxcb.so.1 (X11 display) which doesn't exist on Azure Linux
+pip uninstall -y opencv-python opencv-contrib-python 2>/dev/null || true
+# Ensure headless OpenCV is installed (works on Azure server with no display)
+pip install opencv-python-headless==5.0.0.93 --quiet
 
 # ── Step 2: Start FastAPI AI worker in the background (internal only) ────────
 cd "$ROOT_DIR/fastapi_app"

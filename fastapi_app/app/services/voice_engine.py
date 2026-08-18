@@ -30,8 +30,6 @@ if not os.environ.get("HF_HOME"):
 
 import asyncio
 import logging
-import numpy as np
-import soundfile as sf
 from fastapi import UploadFile
 
 
@@ -88,19 +86,11 @@ def _ensure_model_loaded() -> None:
     logger.info("[Lazy Load] Voice gender model loaded and ready.")
 
 
-
-def _get_female_score(audio_array: np.ndarray, sample_rate: int) -> float:
+def _get_female_score(audio_array, sample_rate: int) -> float:
     """
-    Runs the Wav2Vec2 model on the audio and returns the Female confidence
-    score as a float between 0.0 and 100.0.
-
-    Args:
-        audio_array: 1D float32 numpy array of audio samples
-        sample_rate:  Sample rate of the audio (should be 16000)
-
-    Returns:
-        female_score: float in range [0.0, 100.0]
+    Runs the Wav2Vec2 model on the audio and returns Female confidence score (0-100).
     """
+    import torch
     global _model, _feature_extractor
 
     # Ensure model is loaded (lazy loading on first call)
@@ -170,6 +160,8 @@ def _run_pipeline_sync(audio_bytes: bytes, face_verified: bool) -> dict:
     """
     # Step 1: Load audio from bytes using soundfile
     try:
+        import numpy as np
+        import soundfile as sf
         audio_buffer = io.BytesIO(audio_bytes)
         audio_array, sample_rate = sf.read(audio_buffer, dtype='float32')
     except Exception as e:
