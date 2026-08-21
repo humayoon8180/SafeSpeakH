@@ -6,12 +6,13 @@ from .views import (
     UserProfileView,
     verify_face_gateway,
     verify_voice_gateway,
-    fastapi_debug_log,
     PingView,
     InitiateCallView,
     SetFCMTokenView,
     GenerateAgoraTokenView,
-    EndCallView
+    EndCallView,
+    SubmitCallDetailsView,
+    UserFeedbackHistoryView
 )
 
 urlpatterns = [
@@ -21,7 +22,6 @@ urlpatterns = [
     path('verify-face/',     verify_face_gateway,              name='verify-face'),
     path('verify-voice/',    verify_voice_gateway,             name='verify-voice'),
     path('ping/',            PingView.as_view(),               name='ping'),
-    path('debug/fastapi-log/', fastapi_debug_log,              name='fastapi-debug-log'),
 
     # ── Matchmaking & Calling ─────────────────────────────────────────────────
     # NEW: Atomic find + lock + notify (recommended, fixes race condition)
@@ -29,4 +29,7 @@ urlpatterns = [
     path('set/fcm/', SetFCMTokenView.as_view(), name='set-fcm'),
    path('agora/generate-token/', GenerateAgoraTokenView.as_view(), name='generate_agora_token'),
    path('call/end/', EndCallView.as_view(), name='end_call'),
+   path('call-feedback/', SubmitCallDetailsView.as_view(), name='submit-details'),
+   path('history/', UserFeedbackHistoryView.as_view(), name='user-feedback-history'),
+
 ]

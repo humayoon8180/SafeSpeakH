@@ -3,7 +3,7 @@
 
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
-
+from .models import CallDetails
 User = get_user_model()
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
@@ -60,3 +60,18 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         )
 
         return user
+
+class CallDetailsSerializer(serializers.ModelSerializer):
+    caller_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), source='caller'
+    )
+    speaking_partner_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), source='speaking_partner'
+    )
+
+    class Meta:
+        model = CallDetails
+        fields = ['caller_id', 'speaking_partner_id', 'rating', 'feedback', 'call_duration']
+        
+        # Override the automatic UniqueConstraint check so we can use update_or_create
+        validators = []

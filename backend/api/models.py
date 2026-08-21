@@ -4,6 +4,7 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.conf import settings
+from django.core.validators import MinValueValidator, MaxValueValidator
 
 class User(AbstractUser):
     face_verification = models.BooleanField(default=False)
@@ -84,3 +85,38 @@ class Active_User(models.Model):
 
      def __str__(self):
          return f"User {self.user.id} - Pinged At: {self.last_ping_time}"
+
+
+class CallDetails(models.Model):
+    # Aapki marzi ke mutabiq naming wapas change kar di gayi hai
+    caller = models.ForeignKey(User, on_delete=models.CASCADE, related_name='call_details_given')
+    speaking_partner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='call_details_received')
+
+    rating = models.FloatField(
+        validators=[MinValueValidator(1.0), MaxValueValidator(5.0)],
+        null=True, blank=True
+    )
+
+    feedback = models.TextField(blank=True, null=True)
+
+    call_duration = models.CharField(max_length=20, help_text="Duration in MM:SS format", default="00:00")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            # Constraint: A caller can only have one active record for a specific partner.
+            # If they talk again, we just update this row.
+            models.UniqueConstraint(
+                fields=['caller', 'speaking_partner'],
+                name='one_call_detail_per_caller_per_partner'
+            ),
+            models.CheckConstraint(
+                check=models.Q(rating__isnull=True) | (models.Q(rating__gte=1.0) & models.Q(rating__lte=5.0)),
+                name='rating_between_1_and_5_or_null'
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.caller} rated {self.speaking_partner} - {self.rating} Stars"

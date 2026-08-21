@@ -22,7 +22,8 @@ from dateutil.parser import parse
 from firebase_admin import messaging
 from .firebase_config import get_firebase_app
 from .models import Active_User
-
+from .serializers import CallDetailsSerializer
+from .models import CallDetails
 
 # 1. REGISTER API
 class RegisterView(APIView):
@@ -228,45 +229,6 @@ def verify_voice_gateway(request):
             },
             status=status.HTTP_503_SERVICE_UNAVAILABLE
         )
-
-# ── DEBUG: Read FastAPI crash log (REMOVE AFTER DEBUGGING) ───────────────────
-@api_view(['GET'])
-@authentication_classes([])
-@permission_classes([AllowAny])
-def fastapi_debug_log(request):
-    import subprocess
-    import socket
-    log_path = "/tmp/fastapi.log"
-    try:
-        # Check 1: Is the uvicorn process running?
-        ps_result = subprocess.run(["ps", "aux"], capture_output=True, text=True)
-        uvicorn_running = "uvicorn" in ps_result.stdout
-
-        # Check 2: Is port 8001 actually accepting connections?
-        port_open = False
-        try:
-            sock = socket.create_connection(("127.0.0.1", 8001), timeout=2)
-            sock.close()
-            port_open = True
-        except (ConnectionRefusedError, socket.timeout, OSError):
-            port_open = False
-
-        # Check 3: Read last 80 lines of FastAPI log
-        if os.path.exists(log_path):
-            with open(log_path, "r") as f:
-                lines = f.readlines()
-            log_tail = "".join(lines[-80:])
-        else:
-            log_tail = "Log file not found at /tmp/fastapi.log"
-
-        return Response({
-            "uvicorn_process_alive": uvicorn_running,
-            "port_8001_accepting_connections": port_open,
-            "status": "READY" if port_open else "STILL LOADING or CRASHED",
-            "log_tail": log_tail
-        })
-    except Exception as e:
-        return Response({"error": str(e)}, status=500)
 
 
 ##SetFcm Token Recived From Flutter
@@ -631,3 +593,91 @@ class EndCallView(APIView):
             "success": True, 
             "message": "Call ended successfully. Users are now free!"
         }, status=200)
+
+##SubmitCallDetails       
+class SubmitCallDetailsView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny] 
+
+    def post(self, request):
+        serializer = CallDetailsSerializer(data=request.data)
+        
+        if serializer.is_valid():
+            speaking_partner = serializer.validated_data['speaking_partner']
+            caller = serializer.validated_data['caller']
+            
+            # 🛡️ Rule 1: Koi apne aap ko rate na kar sake
+            if caller == speaking_partner:
+                return Response(
+                    {"success": False, "message": "You cannot rate yourself."}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+            # 🛡️ Rule 2: Just update previous details if they talk again
+            details_obj, created = CallDetails.objects.update_or_create(
+                caller=caller,
+                speaking_partner=speaking_partner,
+                defaults={
+                    'rating': serializer.validated_data.get('rating'),
+                    'feedback': serializer.validated_data.get('feedback', ''),
+                    'call_duration': serializer.validated_data['call_duration']
+                }
+            )
+            
+            return_data = CallDetailsSerializer(details_obj).data
+            
+            return Response(
+                {
+                    "success": True, 
+                    "message": "Call details successfully created!" if created else "Call details successfully updated!", 
+                    "data": return_data
+                }, 
+                status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
+            )
+            
+        # Agar JSON mein koi field missing ya ghalat hai
+        return Response(
+            {"success": False, "errors": serializer.errors}, 
+            status=status.HTTP_400_BAD_REQUEST
+        )
+##Get history user
+class UserFeedbackHistoryView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        # 1. JSON Body se 'caller_id' extract karna
+        caller_id = request.data.get('caller_id')
+        
+        # 2. Validation: Agar caller_id nahi aayi toh error do
+        if not caller_id:
+            return Response(
+                {"success": False, "message": "caller_id is required in the JSON body."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        try:
+            # 3. Database Query: 
+            # - caller_id = caller_id (Jiski history dekhni hai)
+            # - order_by('-created_at') (Naye records sab se upar)
+            # - [:50] (Sirf Top 50)
+            history_records = CallDetails.objects.filter(
+                caller_id=caller_id
+            ).order_by('-created_at')[:50]
+            
+            # 4. Serialize into JSON
+            serializer = CallDetailsSerializer(history_records, many=True)
+            
+            return Response({
+                "success": True,
+                "message": "Feedback history fetched successfully.",
+                "total_records": len(history_records),
+                "data": serializer.data
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            # Server error handling
+            return Response(
+                {"success": False, "error": str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
