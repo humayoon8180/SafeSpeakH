@@ -152,7 +152,6 @@ tf_keras==2.21.0
 threadpoolctl==3.6.0
 tokenizers==0.22.2
 # torch installed as CPU-only via startup.sh (see startup.sh Step 1)
-torchaudio==2.2.1
 tqdm==4.70.0
 transformers==5.14.1
 Twisted==26.4.0
