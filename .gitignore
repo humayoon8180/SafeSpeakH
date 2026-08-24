@@ -26,6 +26,8 @@ Thumbs.db
 # AI Model Weights (Very Large Files — Downloaded automatically on first run)
 .deepface/
 .deepface_models/
+hf_cache/
+fastapi_app/hf_cache/
 *.h5
 *.h5.part
 *.pb

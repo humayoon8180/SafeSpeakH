@@ -200,7 +200,7 @@ def _run_pipeline_sync(audio_bytes: bytes, face_verified: bool) -> dict:
         logger.error(f"[Gate3] Wav2Vec2 error: {e}")
         return {
             "success": False,
-            "message": "Voice analysis failed. Please try again.",
+            "message": f"Voice analysis failed. Error: {str(e)}",
             "retry"  : True,
             "data"   : {"voice_score": 0, "voice_verification": False}
         }
