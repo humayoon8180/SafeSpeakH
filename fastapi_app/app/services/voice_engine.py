@@ -1,268 +1,394 @@
 """
 services/voice_engine.py
-Core AI engine for Voice Verification and Gender Check.
+Core AI engine for Voice Verification — 5-Gate Pipeline.
 
 Pipeline:
-  Step 1 — Read uploaded WAV bytes from multipart form data.
-  Step 2 — Load audio into numpy array using soundfile, resample to 16kHz if needed.
-  Step 3 — Run Wav2Vec2 gender recognition model to get Female confidence score.
-  Step 4 — Apply scoring logic:
-              Score 80-100  → Female confirmed ✅ Approve
-              Score 50-79   → Ambiguous voice ⚠️  Approve only if face_verified=True
-              Score 0-49    → Male / Reject   ❌ Reject
-  Step 5 — Return structured JSON result.
+  Gate 1 — Librosa audio quality validation (bad audio filter, NOT spoof detection)
+  Gate 2 — AASIST-L anti-spoofing (AI/TTS/replay detection)
+  Gate 3 — Wav2Vec2 gender score (female probability 0.0-1.0)
+  Gate 4 — ECAPA-TDNN gender check (independent second architecture)
+  Gate 5 — Conservative dual-model decision policy
 
-Model Used:
-  alefiury/wav2vec2-large-xlsr-53-gender-recognition-librispeech
-  - Fine-tuned on LibriSpeech (English) for Male/Female classification
-  - Input: 16kHz mono WAV audio
-  - Output: Female confidence score (0.0 to 1.0)
+Three possible outcomes:
+  ✅ Approve  — Both models agree: female voice, genuine human
+  ⚠️ Retry   — Models uncertain or disagree (accent, mic, compression)
+  ❌ Reject   — Clear spoof OR both models say male
+
+Models Used:
+  1. AASIST-L (Anti-Spoofing)
+     - Pretrained on ASVspoof2019-LA
+     - 85,306 parameters — lightweight, CPU-safe
+
+  2. alefiury/wav2vec2-large-xlsr-53-gender-recognition-librispeech
+     - Wav2Vec2 Transformer fine-tuned for gender classification
+     - Input: 16kHz mono WAV
+
+  3. JaesungHuh/voice-gender-classifier (ECAPA-TDNN)
+     - ECAPA-TDNN fine-tuned on VoxCeleb2 (98.7% accuracy)
+     - Independent architecture from Wav2Vec2
 """
 
 import io
 import os
 
-# ── Redirect HuggingFace cache to a local folder (works on Windows AND Azure Linux) ─
-# Must be set BEFORE importing transformers so the library respects it.
+# ── Redirect HuggingFace cache to F: drive (NOT C: drive) ────────────────────
 if not os.environ.get("HF_HOME"):
-    # Use a path relative to this file — works on both Windows (dev) and Linux (Azure)
-    os.environ["HF_HOME"] = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "hf_cache")
+    os.environ["HF_HOME"] = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "..", "hf_cache"
+    )
 
 import asyncio
 import logging
 from fastapi import UploadFile
 
-
 logger = logging.getLogger(__name__)
 
-# ── Model Configuration ──────────────────────────────────────────────────────
-# Verified working HuggingFace model for gender recognition
-MODEL_NAME = "alefiury/wav2vec2-large-xlsr-53-gender-recognition-librispeech"
-TARGET_SAMPLE_RATE = 16000   # Model requires exactly 16kHz
+# ── Wav2Vec2 Model Configuration ──────────────────────────────────────────────
+WAV2VEC_MODEL_NAME      = "alefiury/wav2vec2-large-xlsr-53-gender-recognition-librispeech"
+TARGET_SAMPLE_RATE      = 16000
 
-# ── Scoring Thresholds ───────────────────────────────────────────────────────
-FEMALE_CONFIRM_THRESHOLD = 80    # Score >= 80 → clear female voice → approve
-AMBIGUOUS_LOWER_THRESHOLD = 50   # Score 50-79 → ambiguous → needs face_verified=True
-# Score < 50 → reject
+# ── Decision Thresholds ───────────────────────────────────────────────────────
+# These are calibrated based on real + AI voice testing.
+# Wav2Vec2 tends to be conservative — real female voices often score 0.60-0.85.
+WAV2VEC_APPROVE_THRESHOLD = 0.75   # female prob >= 0.75 → clear female
+WAV2VEC_RETRY_THRESHOLD   = 0.45   # female prob >= 0.45 → uncertain (ask to retry)
+WAV2VEC_HARD_REJECT       = 0.30   # female prob <  0.30 → clearly male → permanent reject
 
-# ── Global model singleton (loaded once at startup) ──────────────────────────
-_model = None
-_feature_extractor = None
+# ── Global Wav2Vec2 model singleton ──────────────────────────────────────────
+_wav2vec_model     = None
+_wav2vec_extractor = None
 
 
 def preload_models() -> None:
-    """
-    Called once at FastAPI startup via lifespan in main.py.
-    Uses LAZY loading — model downloads and loads on the FIRST API request,
-    not at server startup. This keeps startup fast and avoids memory spikes.
-    """
-    logger.info("Voice engine ready. Model will load on first request (lazy loading).")
-    # Intentionally NOT loading here — see _ensure_model_loaded() below.
+    """Called at FastAPI startup. Actual loading is lazy (first request)."""
+    logger.info("[Voice] 5-Gate pipeline ready. Models load on first request.")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Wav2Vec2 — Gate 3
+# ─────────────────────────────────────────────────────────────────────────────
+def _ensure_wav2vec_loaded() -> None:
+    global _wav2vec_model, _wav2vec_extractor
+    if _wav2vec_model is not None:
+        return
 
-def _ensure_model_loaded() -> None:
-    """
-    Lazy loader — loads the model on the first API call if not already loaded.
-    Imports torch and transformers HERE (not at module level) to prevent OOM
-    memory spike at uvicorn startup on Azure.
-    """
-    global _model, _feature_extractor
-    if _model is not None and _feature_extractor is not None:
-        return  # Already loaded — nothing to do
-
-    # ── Lazy imports (only happen on first request, not at startup) ──────────
     import torch
     from transformers import Wav2Vec2ForSequenceClassification, AutoFeatureExtractor
 
-    logger.info(f"[Lazy Load] Loading voice gender model: {MODEL_NAME}")
-    _feature_extractor = AutoFeatureExtractor.from_pretrained(MODEL_NAME)
-    _model = Wav2Vec2ForSequenceClassification.from_pretrained(
-        MODEL_NAME,
-        torch_dtype=torch.float32,  # float32 for CPU — more reliable than float16 on CPU-only
-        low_cpu_mem_usage=True,     # Loads layer by layer to reduce peak RAM usage
+    logger.info(f"[Wav2Vec2] Loading model: {WAV2VEC_MODEL_NAME}")
+    _wav2vec_extractor = AutoFeatureExtractor.from_pretrained(WAV2VEC_MODEL_NAME)
+    _wav2vec_model = Wav2Vec2ForSequenceClassification.from_pretrained(
+        WAV2VEC_MODEL_NAME,
+        torch_dtype=torch.float32,
+        low_cpu_mem_usage=True,
     )
-    _model.eval()
-    logger.info("[Lazy Load] Voice gender model loaded and ready.")
+    _wav2vec_model.eval()
+    logger.info("[Wav2Vec2] Model loaded and ready.")
 
 
-def _get_female_score(audio_array, sample_rate: int) -> float:
-    """
-    Runs the Wav2Vec2 model on the audio and returns Female confidence score (0-100).
-    """
+def _get_wav2vec_female_prob(audio_array, sample_rate: int) -> float:
+    """Returns female probability (0.0 to 1.0) from Wav2Vec2."""
     import torch
-    global _model, _feature_extractor
+    import librosa
 
-    # Ensure model is loaded (lazy loading on first call)
-    _ensure_model_loaded()
+    _ensure_wav2vec_loaded()
 
-    # Resample if necessary (Flutter should already send 16kHz, but just in case)
+    # Resample to 16kHz
     if sample_rate != TARGET_SAMPLE_RATE:
-        try:
-            import librosa
-            audio_array = librosa.resample(
-                audio_array,
-                orig_sr=sample_rate,
-                target_sr=TARGET_SAMPLE_RATE
-            )
-            logger.info(f"Audio resampled from {sample_rate}Hz to {TARGET_SAMPLE_RATE}Hz")
-        except Exception as e:
-            raise ValueError(f"Audio resampling failed: {e}")
+        audio_array = librosa.resample(
+            audio_array, orig_sr=sample_rate, target_sr=TARGET_SAMPLE_RATE
+        )
 
-    # Convert stereo to mono if needed
+    # Stereo to mono
     if audio_array.ndim > 1:
         audio_array = audio_array.mean(axis=1)
 
-    # Prepare input tensor for the model
-    inputs = _feature_extractor(
+    inputs = _wav2vec_extractor(
         audio_array,
         sampling_rate=TARGET_SAMPLE_RATE,
         return_tensors="pt",
         padding=True
     )
-    # No dtype casting needed — model and inputs are both float32
 
-    # Run inference (no gradient tracking needed — saves memory)
     with torch.no_grad():
-        logits = _model(**inputs).logits
+        logits = _wav2vec_model(**inputs).logits
 
-    # Convert logits to probabilities using softmax
     probabilities = torch.nn.functional.softmax(logits, dim=-1)
+    id2label      = _wav2vec_model.config.id2label
 
-    # Get label mapping from model config
-    id2label = _model.config.id2label  # e.g., {0: "male", 1: "female"}
-
-    scores = {}
-    for idx, prob in enumerate(probabilities[0]):
-        label = id2label[idx].lower()  # normalize to lowercase
-        scores[label] = prob.item()
-
+    scores = {id2label[i].lower(): probabilities[0][i].item() for i in range(len(id2label))}
     female_prob = scores.get("female", 0.0)
-    female_score = round(female_prob * 100, 2)
 
-    logger.info(f"Voice scores — Female: {female_score:.1f}%, Male: {round((1-female_prob)*100, 2):.1f}%")
-    return female_score
+    logger.info(
+        f"[Wav2Vec2] female={female_prob:.3f}, male={scores.get('male', 0.0):.3f}"
+    )
+    return female_prob
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Main synchronous pipeline
+# ─────────────────────────────────────────────────────────────────────────────
 def _run_pipeline_sync(audio_bytes: bytes, face_verified: bool) -> dict:
     """
-    Synchronous voice verification pipeline, executed in a thread pool
-    to avoid blocking the FastAPI async event loop.
-
-    Args:
-        audio_bytes:   Raw WAV file bytes from multipart upload
-        face_verified: Whether face verification already passed for this user
-
-    Returns:
-        Structured result dict with success, message, data fields
+    Runs the full 5-gate voice verification pipeline synchronously.
+    Called inside a thread pool from run_voice_pipeline() to avoid
+    blocking the FastAPI async event loop.
     """
-    # Step 1: Load audio from bytes using soundfile
+    import numpy as np
+    import soundfile as sf
+
+    # ── Load audio ────────────────────────────────────────────────────────────
     try:
-        import numpy as np
-        import soundfile as sf
         audio_buffer = io.BytesIO(audio_bytes)
         audio_array, sample_rate = sf.read(audio_buffer, dtype='float32')
     except Exception as e:
-        logger.error(f"Failed to read audio file: {e}")
+        logger.error(f"[Voice] Failed to read audio: {e}")
         return {
             "success": False,
-            "message": "Invalid audio format. Please send a valid WAV file (16kHz, Mono).",
+            "message": "Audio file is corrupt or unreadable. Please try recording again.",
+            "retry"  : False,
         }
 
-    # Minimum duration check (at least 2 seconds required for accuracy)
-    duration_seconds = len(audio_array) / sample_rate
-    if duration_seconds < 2.0:
-        return {
-            "success": False,
-            "message": f"Audio too short ({duration_seconds:.1f}s). Minimum 2 seconds required for accurate analysis.",
-        }
+    # Convert stereo to mono
+    if audio_array.ndim > 1:
+        audio_array = audio_array.mean(axis=1)
 
-    # Step 2: Run gender classification model
+    # ═════════════════════════════════════════════════════════════════════════
+    # GATE 1: Librosa Audio Quality Validation
+    # Purpose: Filter out audio too bad to analyze. NOT spoof detection.
+    # ═════════════════════════════════════════════════════════════════════════
     try:
-        female_score = _get_female_score(audio_array, sample_rate)
+        from app.services.audio_quality import check_audio_quality
+        quality = check_audio_quality(audio_bytes)
+
+        if quality["status"] == "reject":
+            logger.warning(f"[Gate1] Audio rejected — corrupt: {quality['message']}")
+            return {
+                "success": False,
+                "message": quality["message"],
+                "retry"  : False,
+                "data"   : {"voice_score": 0, "voice_verification": False}
+            }
+
+        if quality["status"] == "retry":
+            logger.info(f"[Gate1] Audio retry — poor quality: {quality['message']}")
+            return {
+                "success": False,
+                "message": quality["message"],
+                "retry"  : True,
+                "data"   : {"voice_score": 0, "voice_verification": False}
+            }
+
+        logger.info(
+            f"[Gate1] Audio OK — speech={quality['speech_seconds']}s, "
+            f"silence={quality['silence_ratio']:.1%}, rms={quality['rms_db']}dBFS"
+        )
     except Exception as e:
-        logger.error(f"Voice model inference failed: {e}")
+        # Gate 1 failure is non-fatal — log and continue
+        logger.error(f"[Gate1] Quality check error: {e}. Proceeding.")
+
+    # Gate 2 (AASIST-L) has been moved down below the gender checks.
+    # We want to fail fast for male voices and return "Male voice detected"
+    # before we run anti-spoofing checks (which might flag a real male as AI).
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # GATE 3: Wav2Vec2 Gender Score
+    # ═════════════════════════════════════════════════════════════════════════
+    try:
+        wav2vec_female_prob = _get_wav2vec_female_prob(audio_array, sample_rate)
+    except Exception as e:
+        logger.error(f"[Gate3] Wav2Vec2 error: {e}")
         return {
             "success": False,
-            "message": f"AI Engine error: {str(e)}",
+            "message": "Voice analysis failed. Please try again.",
+            "retry"  : True,
+            "data"   : {"voice_score": 0, "voice_verification": False}
         }
 
-    # Step 3: Apply scoring decision logic
-    # ─────────────────────────────────────────────────────────────────────────
-    # Score 80-100: Clearly female voice → Approve immediately
-    # Score 50-79:  Ambiguous / deeper female voice → Approve ONLY if face
-    #               verification is also True (two-factor fallback)
-    # Score 0-49:   Likely male voice → Reject
-    # ─────────────────────────────────────────────────────────────────────────
-
-    if female_score >= FEMALE_CONFIRM_THRESHOLD:
-        # Clear female voice
+    # Early hard reject — only if CLEARLY male (< 30%) — no need for ECAPA
+    # NOTE: 30% threshold is intentionally low to avoid false rejecting genuine females.
+    # Real female voices with heavy accents or mic issues can score 35-55%.
+    if wav2vec_female_prob < WAV2VEC_HARD_REJECT:
+        logger.info(
+            f"[Gate3] Wav2Vec2 hard reject — female_prob={wav2vec_female_prob:.3f} < 0.30 (clearly male)"
+        )
         return {
-            "success": True,
-            "message": "Voice verified successfully. Female voice confirmed.",
-            "data": {
-                "voice_score": female_score,
-                "voice_verification": True
+            "success": False,
+            "message": "Male voice detected. SafeSpeak is for female users only.",
+            "retry"  : False,
+            "data"   : {
+                "voice_score"       : round(wav2vec_female_prob * 100, 2),
+                "voice_verification": False,
+                "rejection_reason"  : "male_voice_detected"
             }
         }
 
-    elif female_score >= AMBIGUOUS_LOWER_THRESHOLD:
-        # Ambiguous zone — check face verification as fallback
-        if face_verified:
+    # Uncertain zone (30-44%) — do not hard reject, let ECAPA decide
+    # This ensures deep-voice females get a fair chance through dual-model check
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # GATE 4: ECAPA-TDNN Gender Check (Second independent model)
+    # ═════════════════════════════════════════════════════════════════════════
+    ecapa_result     = None
+    ecapa_available  = True
+
+    try:
+        from app.services.ecapa_engine import get_ecapa_gender
+        ecapa_result = get_ecapa_gender(audio_bytes)
+
+        if ecapa_result.get("error"):
+            logger.warning(f"[Gate4] ECAPA error: {ecapa_result['error']}. Falling back to Wav2Vec2 only.")
+            ecapa_available = False
+        else:
+            logger.info(
+                f"[Gate4] ECAPA: label={ecapa_result['label']}, "
+                f"conf={ecapa_result['confidence']:.3f}, "
+                f"female_pass={ecapa_result['female_pass']}"
+            )
+    except Exception as e:
+        logger.error(f"[Gate4] ECAPA engine unavailable: {e}. Falling back to Wav2Vec2 only.")
+        ecapa_available = False
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # GATE 2: AASIST-L Anti-Spoof Detection (Moved here)
+    # ═════════════════════════════════════════════════════════════════════════
+    try:
+        from app.services.aasist_engine import check_ai_voice
+        spoof_result = check_ai_voice(audio_bytes)
+
+        if spoof_result["is_spoof"]:
+            logger.warning(
+                f"[Gate2] AASIST-L spoof detected. score={spoof_result['spoof_score']}"
+            )
+            return {
+                "success": False,
+                "message": "AI-generated voice detected. Voice verification rejected. Please use your real voice.",
+                "retry"  : False,
+                "data"   : {
+                    "voice_score"       : 0,
+                    "voice_verification": False,
+                    "rejection_reason"  : "ai_voice_detected"
+                }
+            }
+
+        logger.info(
+            f"[Gate2] AASIST-L: bonafide. score={spoof_result['spoof_score']}"
+        )
+    except Exception as e:
+        logger.error(f"[Gate2] AASIST-L error: {e}. Skipping anti-spoof check.")
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # GATE 5: Conservative Decision Policy
+    # ═════════════════════════════════════════════════════════════════════════
+    voice_score = round(wav2vec_female_prob * 100, 2)
+
+    # ── Case A: ECAPA is available — dual-model decision ─────────────────────
+    if ecapa_available and ecapa_result:
+        ecapa_female_pass = ecapa_result["female_pass"]
+        ecapa_label       = ecapa_result["label"]
+
+        # ✅ APPROVE: Both models clearly agree female
+        if wav2vec_female_prob >= WAV2VEC_APPROVE_THRESHOLD and ecapa_female_pass:
+            logger.info("[Gate5] APPROVE — Both models agree: female voice confirmed.")
             return {
                 "success": True,
-                "message": "Voice Deep but face verification confirms identity.",
-                "data": {
-                    "voice_score": female_score,
+                "message": "Voice verified successfully. Female voice confirmed.",
+                "retry"  : False,
+                "data"   : {
+                    "voice_score"      : voice_score,
                     "voice_verification": True
                 }
             }
-        else:
+
+        # ⚠️ RETRY: Wav2Vec2 uncertain (55-79%) but ECAPA says female
+        if wav2vec_female_prob >= WAV2VEC_RETRY_THRESHOLD and ecapa_female_pass:
+            logger.info("[Gate5] RETRY — Wav2Vec2 uncertain, ECAPA female. Ask to retry.")
             return {
                 "success": False,
-                "message": "Voice score is Deep and face verification has not passed. Please complete face verification first.",
-                "data": {
-                    "voice_score": female_score,
+                "message": "Voice is unclear. Please speak naturally and try again.",
+                "retry"  : True,
+                "data"   : {
+                    "voice_score"      : voice_score,
                     "voice_verification": False
                 }
             }
 
-    else:
-        # Score below 50 — reject
+        # ❌ REJECT: Both models clearly indicate male
+        if wav2vec_female_prob < WAV2VEC_HARD_REJECT and ecapa_label == "male":
+            logger.info("[Gate5] REJECT — Both models: male voice.")
+            return {
+                "success": False,
+                "message": "Male voice detected. SafeSpeak is for female users only.",
+                "retry"  : False,
+                "data"   : {
+                    "voice_score"       : voice_score,
+                    "voice_verification": False,
+                    "rejection_reason"  : "male_voice_detected"
+                }
+            }
+
+
+
+        # ❌ REJECT: Models disagree (e.g. low pitch male that fooled Wav2Vec2)
+        # Instead of retrying forever, if ECAPA says male, we reject outright.
+        logger.info(
+            f"[Gate5] REJECT — Models disagree. "
+            f"Wav2Vec2={wav2vec_female_prob:.3f}, ECAPA={ecapa_label}({ecapa_result['confidence']:.3f})"
+        )
         return {
             "success": False,
             "message": "Male voice detected. SafeSpeak is for female users only.",
-            "data": {
-                "voice_score": female_score,
-                "voice_verification": False
+            "retry"  : False,
+            "data"   : {
+                "voice_score"       : voice_score,
+                "voice_verification": False,
+                "rejection_reason"  : "male_voice_detected"
             }
         }
 
+    # ── Case B: ECAPA unavailable — fall back to Wav2Vec2 only ───────────────
+    logger.warning("[Gate5] ECAPA unavailable. Using Wav2Vec2 only (reduced security).")
 
+    if wav2vec_female_prob >= WAV2VEC_APPROVE_THRESHOLD:
+        return {
+            "success": True,
+            "message": "Voice verified successfully. Female voice confirmed.",
+            "retry"  : False,
+            "data"   : {
+                "voice_score"      : voice_score,
+                "voice_verification": True
+            }
+        }
+
+    # Wav2Vec2 in 55-79% range without ECAPA → retry
+    return {
+        "success": False,
+        "message": "Voice is unclear. Please speak naturally and try again.",
+        "retry"  : True,
+        "data"   : {
+            "voice_score"      : voice_score,
+            "voice_verification": False
+        }
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Public async entry point
+# ─────────────────────────────────────────────────────────────────────────────
 async def run_voice_pipeline(audio_file: UploadFile, face_verified: bool) -> dict:
     """
-    Full async Voice Verification pipeline.
-    Reads the uploaded WAV file and runs the AI pipeline in a thread pool
-    so the FastAPI event loop is never blocked.
-
-    Args:
-        audio_file:    Uploaded WAV file from multipart form data
-        face_verified: Whether the user has already passed face verification
-
-    Returns:
-        Structured result dict
+    Full async entry point for voice verification.
+    Reads the uploaded file and runs the 5-gate pipeline in a thread pool.
     """
-    # Read raw bytes from the uploaded file
     try:
         audio_bytes = await audio_file.read()
     except Exception as e:
-        logger.error(f"Failed to read uploaded audio: {e}")
+        logger.error(f"[Voice] Failed to read upload: {e}")
         return {
             "success": False,
             "message": "Failed to read uploaded audio file.",
         }
 
-    # Run the heavy synchronous work in a thread pool
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(
         None,

@@ -22,8 +22,10 @@ async def lifespan(app: FastAPI):
     print("[SafeSpeak AI] Preloading AI models — please wait...")
     from app.services.face_engine import preload_models as preload_face
     from app.services.voice_engine import preload_models as preload_voice
+    from app.services.ecapa_engine import preload_ecapa
     preload_face()
     preload_voice()
+    preload_ecapa()
     print("[SafeSpeak AI] All models loaded. Server ready.")
     yield
     # Shutdown cleanup (if needed in future)

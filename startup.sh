@@ -10,7 +10,7 @@ echo "App running from: $ROOT_DIR"
 # ── Step 1: Install Dependencies ─────────────────────────────────────────────
 cd "$ROOT_DIR"
 # Install CPU-only PyTorch FIRST (Azure B2 has no GPU — avoids 2GB CUDA download)
-pip install torch --index-url https://download.pytorch.org/whl/cpu --quiet
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu --quiet
 # Install all other dependencies
 pip install --no-cache-dir -r requirements.txt
 # Remove GUI OpenCV — requires libxcb.so.1 (X11 display) which doesn't exist on Azure Linux

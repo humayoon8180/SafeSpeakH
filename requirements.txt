@@ -140,7 +140,6 @@ scipy==1.17.1
 service-identity==26.1.0
 shellingham==1.5.4
 six==1.17.0
-sounddevice==0.5.5
 soundfile==0.14.0
 soupsieve==2.9.1
 soxr==1.1.0
@@ -153,6 +152,7 @@ tf_keras==2.21.0
 threadpoolctl==3.6.0
 tokenizers==0.22.2
 # torch installed as CPU-only via startup.sh (see startup.sh Step 1)
+torchaudio==2.2.1
 tqdm==4.70.0
 transformers==5.14.1
 Twisted==26.4.0

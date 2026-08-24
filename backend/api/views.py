@@ -646,13 +646,13 @@ class UserFeedbackHistoryView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        # 1. JSON Body se 'caller_id' extract karna
-        caller_id = request.data.get('caller_id')
+        # 1. URL Query Parameter se 'caller_id' extract karna
+        caller_id = request.GET.get('caller_id')
         
         # 2. Validation: Agar caller_id nahi aayi toh error do
         if not caller_id:
             return Response(
-                {"success": False, "message": "caller_id is required in the JSON body."}, 
+                {"success": False, "message": "caller_id is required as a URL query parameter."}, 
                 status=status.HTTP_400_BAD_REQUEST
             )
             
