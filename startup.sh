@@ -11,7 +11,7 @@ echo "App running from: $ROOT_DIR"
 cd "$ROOT_DIR"
 # Remove GUI OpenCV (which causes libGL errors on Azure) and force headless
 pip uninstall -y opencv-python opencv-contrib-python 2>/dev/null || true
-pip install --no-cache-dir opencv-python-headless==4.8.1.78 --quiet
+pip install --force-reinstall --no-cache-dir numpy==1.26.4 opencv-python-headless==4.8.1.78 --quiet
 
 # ── Step 2: Start FastAPI AI worker in the background (internal only) ────────
 cd "$ROOT_DIR/fastapi_app"
