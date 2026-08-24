@@ -9,9 +9,9 @@ echo "App running from: $ROOT_DIR"
 
 # ── Step 1: Install Dependencies ─────────────────────────────────────────────
 cd "$ROOT_DIR"
-# NOTE: All dependencies (including PyTorch CPU and OpenCV headless) are now 
-# strictly managed by Azure's Oryx build engine via requirements.txt.
-# Runtime 'pip install' is disabled because Azure containers are read-only at runtime.
+# Remove GUI OpenCV (which causes libGL errors on Azure) and force headless
+pip uninstall -y opencv-python opencv-contrib-python 2>/dev/null || true
+pip install --no-cache-dir opencv-python-headless==4.8.1.78 --quiet
 
 # ── Step 2: Start FastAPI AI worker in the background (internal only) ────────
 cd "$ROOT_DIR/fastapi_app"
