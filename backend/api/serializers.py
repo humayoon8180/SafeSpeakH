@@ -5,7 +5,9 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from .models import CallDetails
 User = get_user_model()
+from .models import YouTubeVideo
 
+##User Registration Serializer
 class UserRegistrationSerializer(serializers.ModelSerializer):
     email    = serializers.EmailField(required=True)
     name     = serializers.CharField(source='first_name', required=True)
@@ -61,6 +63,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
         return user
 
+###call details serializer
 class CallDetailsSerializer(serializers.ModelSerializer):
     caller_id = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(), source='caller'
@@ -75,3 +78,13 @@ class CallDetailsSerializer(serializers.ModelSerializer):
         
         # Override the automatic UniqueConstraint check so we can use update_or_create
         validators = []
+
+
+##youtube video serializer
+class YouTubeVideoSerializer(serializers.ModelSerializer):
+    # id is read-only — auto-assigned by DB on POST, returned in GET response
+    id = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = YouTubeVideo
+        fields = ['id', 'title', 'description', 'url']

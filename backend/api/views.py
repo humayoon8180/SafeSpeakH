@@ -24,6 +24,9 @@ from .firebase_config import get_firebase_app
 from .models import Active_User
 from .serializers import CallDetailsSerializer
 from .models import CallDetails
+from .models import YouTubeVideo
+from .serializers import YouTubeVideoSerializer
+
 
 # 1. REGISTER API
 class RegisterView(APIView):
@@ -640,6 +643,7 @@ class SubmitCallDetailsView(APIView):
             {"success": False, "errors": serializer.errors}, 
             status=status.HTTP_400_BAD_REQUEST
         )
+
 ##Get history user
 class UserFeedbackHistoryView(APIView):
     authentication_classes = []
@@ -681,3 +685,66 @@ class UserFeedbackHistoryView(APIView):
                 {"success": False, "error": str(e)}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+##Youtube Video List Api get and post
+class YouTubeVideoView(APIView):
+    """
+    API View to handle GET and POST requests for YouTube videos.
+    Authentication is temporarily disabled for testing purposes.
+    """
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    # ==========================================
+    # 1. GET API - Retrieve all videos
+    # ==========================================
+    def get(self, request):
+        try:
+            # 1. Database Query: Fetch all video records, ordered by ID (newest first)
+            videos = YouTubeVideo.objects.all().order_by('-id')
+            
+            # 2. Serialization: Convert the queryset into a JSON array
+            serializer = YouTubeVideoSerializer(videos, many=True)
+            
+            # 3. Response: Send the serialized data array back to the client
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            # Catch any unexpected exceptions to prevent server crashes
+            return Response(
+                {"success": False, "message": f"Internal Server Error: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    # ==========================================
+    # 2. POST API - Add a new video to the database
+    # ==========================================
+    def post(self, request):
+        try:
+            # 1. Pass the incoming JSON data to the serializer
+            serializer = YouTubeVideoSerializer(data=request.data)
+            
+            # 2. Validation: Check if the provided data is valid (all required fields exist)
+            if serializer.is_valid():
+                # Save the new record to the database
+                serializer.save() 
+                
+                return Response(
+                    {"success": True, "message": "Video has been successfully added!"},
+                    status=status.HTTP_201_CREATED
+                )
+            
+            # 3. Handle Validation Errors: Return the specific field errors if validation fails
+            return Response(
+                {"success": False, "errors": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        except Exception as e:
+            # Catch any unexpected exceptions during the creation process
+            return Response(
+                {"success": False, "message": f"Internal Server Error: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+

@@ -25,8 +25,7 @@ class User(AbstractUser):
     def __str__(self):
         return self.email or self.username
 
-# api/models.py mein add karo
-
+##user acitve model in DB
 class UserActiva(models.Model):
     # One to one with Django User
     user = models.OneToOneField(
@@ -61,7 +60,7 @@ class UserActiva(models.Model):
     def __str__(self):
         return f"{self.user.email} — active:{self.is_active}"
 
-
+##Fcm Model in Database
 class FCMDevice(models.Model):
     # user_id (Foreign Key): identified the token which user have
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='devices')
@@ -86,7 +85,7 @@ class Active_User(models.Model):
      def __str__(self):
          return f"User {self.user.id} - Pinged At: {self.last_ping_time}"
 
-
+##call details model
 class CallDetails(models.Model):
     # Aapki marzi ke mutabiq naming wapas change kar di gayi hai
     caller = models.ForeignKey(User, on_delete=models.CASCADE, related_name='call_details_given')
@@ -120,3 +119,12 @@ class CallDetails(models.Model):
 
     def __str__(self):
         return f"{self.caller} rated {self.speaking_partner} - {self.rating} Stars"
+
+##Youtube Video Model in Database
+class YouTubeVideo(models.Model):
+    title = models.CharField(max_length=255)
+    description = models.TextField()
+    url = models.URLField()
+
+    def __str__(self):
+        return self.title

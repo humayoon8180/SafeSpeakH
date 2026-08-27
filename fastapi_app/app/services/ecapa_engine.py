@@ -35,7 +35,7 @@ ECAPA_MIN_CONFIDENCE = 0.70   # Minimum softmax confidence for female label
 # ── Path to the cloned ECAPA repo ─────────────────────────────────────────────
 _ECAPA_REPO_DIR = os.path.normpath(os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
-    "..", "..", "..",          # up to SafeSpeak-FYP/
+    "..", "..",                # up to fastapi_app/
     "voice-gender-classifier"  # cloned repo
 ))
 

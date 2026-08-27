@@ -38,10 +38,10 @@ logger = logging.getLogger(__name__)
 TARGET_SAMPLE_RATE = 16000
 MAX_AUDIO_SAMPLES  = 64600   # 4.04 seconds at 16kHz (AASIST training standard)
 
-# Path to the cloned AASIST repo — it sits next to the fastapi_app directory
+# Path to the cloned AASIST repo — it sits inside the fastapi_app directory now
 _REPO_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),  # .../fastapi_app/app/services/
-    "..", "..", "..",                             # go up to SafeSpeak-FYP/
+    "..", "..",                                   # go up to fastapi_app/
     "aasist"                                     # the cloned repo folder
 )
 _REPO_DIR = os.path.normpath(_REPO_DIR)

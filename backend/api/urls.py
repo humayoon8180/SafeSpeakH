@@ -12,7 +12,8 @@ from .views import (
     GenerateAgoraTokenView,
     EndCallView,
     SubmitCallDetailsView,
-    UserFeedbackHistoryView
+    UserFeedbackHistoryView,
+    YouTubeVideoView
 )
 
 urlpatterns = [
@@ -31,5 +32,5 @@ urlpatterns = [
    path('call/end/', EndCallView.as_view(), name='end_call'),
    path('call-feedback/', SubmitCallDetailsView.as_view(), name='submit-details'),
    path('history/', UserFeedbackHistoryView.as_view(), name='user-feedback-history'),
-
+   path('youtube-videos/', YouTubeVideoView.as_view(), name='youtube_videos'),
 ]
