@@ -5,6 +5,7 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.conf import settings
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.conf import settings
 
 class User(AbstractUser):
     face_verification = models.BooleanField(default=False)
@@ -128,3 +129,27 @@ class YouTubeVideo(models.Model):
 
     def __str__(self):
         return self.title
+
+
+# ── Account Status Table ──────────────────────────────────
+class AccountStatus(models.Model):
+    user          = models.OneToOneField(User, on_delete=models.CASCADE, related_name='account_status')
+    is_active     = models.BooleanField(default=True)
+    is_terminated = models.BooleanField(default=False)
+    created_at    = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.email} — Active: {self.is_active}"
+
+
+# ── Appeal Table ──────────────────────────────────────────
+# Saves user appeal message only — status change is manual by admin
+class Appeal(models.Model):
+    email      = models.EmailField()
+    message    = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Appeal from {self.email}"
+
+

@@ -11,7 +11,7 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.decorators import api_view, parser_classes, permission_classes, authentication_classes
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import FCMDevice, UserActiva
+from .models import FCMDevice, UserActiva, AccountStatus, Appeal, Active_User, CallDetails, YouTubeVideo
 import time
 import os
 from agora_token_builder import RtcTokenBuilder
@@ -21,11 +21,8 @@ import datetime
 from dateutil.parser import parse
 from firebase_admin import messaging
 from .firebase_config import get_firebase_app
-from .models import Active_User
-from .serializers import CallDetailsSerializer
-from .models import CallDetails
-from .models import YouTubeVideo
-from .serializers import YouTubeVideoSerializer
+from .serializers import CallDetailsSerializer , YouTubeVideoSerializer
+
 
 
 # 1. REGISTER API
@@ -748,3 +745,84 @@ class YouTubeVideoView(APIView):
             )
 
 
+## POST /api/terminate/
+# Body: { "user_id": 5, "reason": "Violated community guidelines" }
+class TerminateAccountView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    def post(self, request):
+        user_id = request.data.get('user_id')
+        reason  = request.data.get('reason')
+        if not user_id or not reason:
+            return Response({
+                "success": False,
+                "message": "user_id and reason are required."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check user exists
+        try:
+            User = get_user_model()
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({
+                "success": False,
+                "message": "User not found."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # Get or create AccountStatus for this user
+
+        account_status, _ = AccountStatus.objects.get_or_create(
+            user=user,
+            defaults={'is_active': True, 'is_terminated': False}
+        )
+        # Already terminated check
+
+        if account_status.is_terminated:
+            return Response({
+                "success": False,
+                "message": "This account is already terminated."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Terminate
+        account_status.is_active     = False
+        account_status.is_terminated = True
+        account_status.save()
+        return Response({
+            "success": True,
+            "message": f"Account of {user.email} has been terminated.",
+            "data": {
+                "user_id":       user.id,
+                "email":         user.email,
+                "is_active":     account_status.is_active,
+                "is_terminated": account_status.is_terminated,
+            }
+        }, status=status.HTTP_200_OK)
+
+# ── APPEAL API ────────────────────────────────────────────
+# POST /api/appeal/
+# Body: { "email": "user@example.com", "message": "I was wrongly terminated" }
+# NOTE: This ONLY saves the appeal. Status change is MANUAL by admin.
+class AppealView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    def post(self, request):
+        email   = request.data.get('email')
+        message = request.data.get('message')
+        if not email or not message:
+            return Response({
+                "success": False,
+                "message": "email and message are required."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # update_or_create — same email updates existing record, no duplicate rows
+        appeal, created = Appeal.objects.update_or_create(
+            email=email.lower().strip(),
+            defaults={'message': message}
+        )
+        return Response({
+            "success": True,
+            "message": "Your appeal has been submitted successfully. We will Review it and notify you",
+            "data": {
+                "email": email.lower().strip()
+            }
+        }, status=status.HTTP_201_CREATED)
