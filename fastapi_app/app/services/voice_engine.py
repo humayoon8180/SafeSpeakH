@@ -262,12 +262,12 @@ def _run_pipeline_sync(audio_bytes: bytes, face_verified: bool) -> dict:
             )
             return {
                 "success": False,
-                "message": "AI-generated voice detected. Voice verification rejected. Please use your real voice.",
+                "message": "Male voice detected. ",
                 "retry"  : False,
                 "data"   : {
                     "voice_score"       : 0,
                     "voice_verification": False,
-                    "rejection_reason"  : "ai_voice_detected"
+                    "rejection_reason"  : "male_voice_detected"
                 }
             }
 
