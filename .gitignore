@@ -1,29 +1,80 @@
-# Virtual Environment
+# =============================================================================
+# SafeSpeak — Git Ignore Configuration
+# =============================================================================
+
+# ── Virtual Environments ──────────────────────────────────────────────────────
 venv/
 env/
 .venv/
+ENV/
+env.bak/
+venv.bak/
 
-# Environment Variables
+# ── Environment Variables & Secrets (CRITICAL) ────────────────────────────────
 .env
+.env.*
+*.env
+*.env.*
+*.key
+*.pem
+*.crt
+*.pfx
+*.p12
 
-# Python Cache
+# ── Cloud & Firebase Credentials (CRITICAL) ───────────────────────────────────
+*firebase-credentials*.json
+*serviceAccountKey*.json
+*-adminsdk-*.json
+firebase-credentials.json
+backend/firebase/firebase-credentials.json
+
+# ── Python Bytecode & Cache ───────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
+*$py.class
 *.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Django
+# ── Database & Storage ────────────────────────────────────────────────────────
 db.sqlite3
+*.sqlite3
+*.db
 staticfiles/
 media/
 
-# VS Code
-.vscode/
+# ── Application Logs & Temporary Dumps ────────────────────────────────────────
+*.log
+logs/
+*.tmp
+*.bak
 
-# OS
+# ── IDE & Operating System Artifacts ──────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 .DS_Store
 Thumbs.db
+ehthumbs.db
 
-# AI Model Weights (Very Large Files — Downloaded automatically on first run)
+# ── AI Model Weights & Cache Artifacts (Auto-downloaded) ──────────────────────
 .deepface/
 .deepface_models/
 hf_cache/
@@ -31,5 +82,5 @@ fastapi_app/hf_cache/
 *.h5
 *.h5.part
 *.pb
-#Firebase
-backend/firebase/firebase-credentials.json
+*.safetensors
+*.onnx

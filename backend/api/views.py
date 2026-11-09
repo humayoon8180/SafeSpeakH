@@ -1,31 +1,59 @@
+# =============================================================================
+# api/views.py
+# REST API Controllers & Gateway Handlers for the SafeSpeak Platform.
+#
+# Architectural Overview:
+#   1. Authentication & Onboarding (Register, Login, Profile)
+#   2. Biometric Verification Gateways (Proxying to local FastAPI AI microservice)
+#   3. Push Notifications & Client Presence (FCM Token, Server Heartbeat/Ping)
+#   4. Matchmaking & Call Orchestration (Atomic candidate selection, Call Locking)
+#   5. WebRTC / Agora Signaling (Cryptographic channel token issuance)
+#   6. Post-Session Analytics (Idempotent ratings, feedback history audit)
+#   7. Moderation & Trust (Account status enforcement, User appeals)
+# =============================================================================
+
+import os
+import time
+import datetime
 from datetime import timedelta
+from dateutil.parser import parse
 import requests as http_requests
+
 from django.utils import timezone
-from django.contrib.auth import authenticate
+from django.contrib.auth import authenticate, get_user_model
 from django.db import transaction
 
+from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.decorators import api_view, parser_classes, permission_classes, authentication_classes
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import FCMDevice, UserActiva, AccountStatus, Appeal, Active_User, CallDetails, YouTubeVideo
-import time
-import os
-from agora_token_builder import RtcTokenBuilder
-from .serializers import UserRegistrationSerializer
-from django.utils import timezone
-import datetime
-from dateutil.parser import parse
+
 from firebase_admin import messaging
+from agora_token_builder import RtcTokenBuilder
+
 from .firebase_config import get_firebase_app
-from .serializers import CallDetailsSerializer , YouTubeVideoSerializer
+from .models import (
+    FCMDevice,
+    UserActiva,
+    AccountStatus,
+    Appeal,
+    Active_User,
+    CallDetails,
+    YouTubeVideo
+)
+from .serializers import (
+    UserRegistrationSerializer,
+    CallDetailsSerializer,
+    YouTubeVideoSerializer
+)
 
 
-
-# 1. REGISTER API
+# ---------------------------------------------------------------------------
+# 1. USER REGISTRATION
+# ---------------------------------------------------------------------------
 class RegisterView(APIView):
     permission_classes = [AllowAny]
     def post(self, request):
@@ -40,10 +68,11 @@ class RegisterView(APIView):
                 defaults={'is_active': False, 'is_on_call': False}
             )
 
-            # Signup successful hone par foran token generate karna
+            # Issue a JWT token pair immediately on registration so the client
+            # can proceed to the authenticated home screen without a separate login step.
             refresh = RefreshToken.for_user(user)
 
-            # Standard Format as requested by frontend
+            # Return a consistent envelope matching the login response contract.
             return Response({
                 "success": True,
                 "message": "Account created successfully",
@@ -81,19 +110,24 @@ class RegisterView(APIView):
             "data": flat_errors
         }, status=status.HTTP_400_BAD_REQUEST)
 
-##Login Api
+# ---------------------------------------------------------------------------
+# 2. LOGIN
+# ---------------------------------------------------------------------------
 class LoginView(APIView):
     permission_classes = [AllowAny]
+
     def post(self, request):
         email    = request.data.get('email')
         password = request.data.get('password')
 
         if not email or not password:
             return Response({
-                "success": False, 
+                "success": False,
                 "message": "Email and password are required."
             }, status=status.HTTP_400_BAD_REQUEST)
 
+        # Django's authenticate normalises the username to lowercase to match
+        # the email stored during registration.
         user = authenticate(
             username=email.lower(),
             password=password
@@ -120,7 +154,10 @@ class LoginView(APIView):
             "message": "Email or password is incorrect."
         }, status=status.HTTP_401_UNAUTHORIZED)
 
-# 3. PROFILE API (Protected)
+
+# ---------------------------------------------------------------------------
+# 3. USER PROFILE (Protected — requires Bearer token)
+# ---------------------------------------------------------------------------
 class UserProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -137,7 +174,6 @@ class UserProfileView(APIView):
                 "face_verification":  user.face_verification,
                 "voice_verification": user.voice_verification,
                 "voice_score":        user.voice_score,
-                # --- New Fields Has been added---
                 "total_calls":        user.total_calls,
                 "profile_image_url":  user.profile_image_url,
                 "rating":             user.rating,
@@ -231,25 +267,29 @@ def verify_voice_gateway(request):
         )
 
 
-##SetFcm Token Recived From Flutter
+# ---------------------------------------------------------------------------
+# 6. FCM TOKEN REGISTRATION
+# Stores or refreshes the device's Firebase Cloud Messaging push token.
+# Authentication is intentionally relaxed here: the token is registered
+# immediately after login before the client has set the Authorization header.
+# ---------------------------------------------------------------------------
 class SetFCMTokenView(APIView):
-    # JWT authentication filhal bypass kar di hai
-    permission_classes = [] 
+    permission_classes = []
 
     def post(self, request):
-        user_id = request.data.get('user_id')
-        fcm_token = request.data.get('fcmToken')
-        device_type = request.data.get('device_type', 'android') # Default to android if not provided
+        user_id     = request.data.get('user_id')
+        fcm_token   = request.data.get('fcmToken')
+        device_type = request.data.get('device_type', 'android')
 
-        # Validation: check karein ke zaroori data bheja gaya hai ya nahi
         if not user_id or not fcm_token:
             return Response(
-                {"success": False, "message": "user_id and fcm_token are required."}, 
+                {"success": False, "message": "user_id and fcm_token are required."},
                 status=400
             )
 
         try:
-            # Database mein token save ya update karein
+            # Upsert the token: a user replacing their device or reinstalling
+            # the app will naturally receive a new FCM token.
             fcm_device, created = FCMDevice.objects.update_or_create(
                 user_id=user_id,
                 defaults={
@@ -257,54 +297,61 @@ class SetFCMTokenView(APIView):
                     'device_type': device_type
                 }
             )
-            
+
             return Response({
-                "success": True, 
+                "success": True,
                 "message": "FCM Token updated successfully.",
                 "data": {
-                    "user_id": user_id,
+                    "user_id":  user_id,
                     "fcmToken": fcm_token
                 }
             }, status=200)
-            
+
         except Exception as e:
             return Response({"success": False, "message": str(e)}, status=500)
 
-##Ping Api Request 
-class PingView(APIView):
-    permission_classes = [] 
 
-    def put(self, request): 
+# ---------------------------------------------------------------------------
+# 7. HEARTBEAT / PING
+# Receives a periodic keep-alive signal from the Flutter client and records
+# the server-side timestamp in Active_User. The matchmaking engine treats any
+# user whose last_ping_time is older than 30 seconds as offline and excludes
+# them from the candidate pool.
+#
+# Design note: The timestamp is set server-side (timezone.now()) rather than
+# trusting a client-supplied value, preventing clock-skew from corrupting
+# the online-status window.
+# ---------------------------------------------------------------------------
+class PingView(APIView):
+    permission_classes = []
+
+    def put(self, request):
         user_id = request.data.get('user_id')
-        
-        # Note: Ab hum yahan request.data.get('ping_at') nahi mangwa rahe
 
         if not user_id:
             return Response({"success": False, "message": "user_id is required."}, status=400)
 
         try:
-            # ==========================================
-            # NAYA CODE: Backend ka apna live time
-            # ==========================================
+            # Always use the authoritative server clock to stamp the ping.
             ping_time = timezone.now()
-            
-            # Database mein update karein
+
             Active_User.objects.update_or_create(
                 user_id=user_id,
                 defaults={'last_ping_time': ping_time}
             )
-            
-            return Response({"success": True, "message": "Ping Recived Successfully"}, status=200)
+
+            return Response({"success": True, "message": "Ping received successfully."}, status=200)
 
         except Exception as e:
             return Response({"success": False, "message": str(e)}, status=500)
 
 
-##Call/initiate / api
-
+# ---------------------------------------------------------------------------
+# 8. CALL INITIATION & MATCHMAKING
+# ---------------------------------------------------------------------------
 class InitiateCallView(APIView):
-    # user_id comes directly from the request body, no access token
-    # required for this endpoint (matches the ping endpoint's pattern).
+    # This endpoint identifies the caller by user_id in the request body
+    # rather than a Bearer token, consistent with the ping endpoint contract.
     permission_classes = [AllowAny]
  
     def post(self, request):
@@ -420,17 +467,19 @@ class InitiateCallView(APIView):
 
             get_firebase_app()
             current_timestamp = now.strftime("%H:%M:%S %m/%d/%Y")
-            # --- NEW CODE: Caller (User A) Ki Details Fetch Karein ---
+            # -----------------------------------------------------------
+            # Retrieve caller metadata for notification payload
+            # -----------------------------------------------------------
             from django.contrib.auth import get_user_model
             User = get_user_model()
             caller_user = User.objects.filter(id=caller_id).first()
 
-            # Safely extract data, fallback to defaults agar koi value DB mein na ho
+            # Safely extract metadata with fallback values if profile data is incomplete
             caller_name = caller_user.first_name if caller_user and caller_user.first_name else "Unknown"
             caller_image = caller_user.profile_image_url if caller_user and caller_user.profile_image_url else ""
             caller_country = caller_user.country if caller_user and caller_user.country else ""
             caller_rating = str(caller_user.rating) if caller_user else "0.0"
-            # ---------------------------------------------------------
+            # -----------------------------------------------------------
 
             fcm_message = messaging.Message(
                 # notification block: makes Android OS wake the app
@@ -528,92 +577,99 @@ class InitiateCallView(APIView):
             }
         }, status=status.HTTP_200_OK)
 
-##Agora Token Generate api
+# ---------------------------------------------------------------------------
+# 9. AGORA RTC TOKEN GENERATION
+# Issues short-lived RTC channel tokens for secure audio communication.
+# ---------------------------------------------------------------------------
 class GenerateAgoraTokenView(APIView):
     def post(self, request):
-        # 1. Frontend se room_id lena
-        channel_name = request.data.get('room_id') 
-        
-        # 2. Agar frontend uid na bheje, toh 0 set kar do (Random assign ke liye)
-        uid = request.data.get('uid', 0) 
+        # Extract target room identifier from request
+        channel_name = request.data.get('room_id')
+
+        # Default UID to 0 if not supplied by client (allows Agora to allocate dynamically)
+        uid = request.data.get('uid', 0)
 
         if not channel_name:
             return Response({"success": False, "error": "room_id is required"}, status=400)
 
-        # ==========================================
-        # 3. .ENV FILE SE KEYS UTHANA
-        # ==========================================
+        # Retrieve Agora credentials from environment configuration
         app_id = os.environ.get('AGORA_APP_ID')
         app_certificate = os.environ.get('AGORA_APP_CERTIFICATE')
 
-        # 4Token ki settings (1 ghanta expiry)
+        # Token expiration policy: 3600 seconds (1 hour) validity window
         expiration_time_in_seconds = 3600
         current_timestamp = int(time.time())
         privilege_expired_ts = current_timestamp + expiration_time_in_seconds
-        role = 1  # 1 = Broadcaster (Audio/Video bhejne aur lene ke liye)
+        role = 1  # Role 1 corresponds to Broadcaster (bidirectional audio streaming)
 
-        # 5. Token Generate karna
+        # Generate cryptographic RTC token via Agora SDK builder
         try:
             token = RtcTokenBuilder.buildTokenWithUid(
-                app_id, 
-                app_certificate, 
-                channel_name, 
-                int(uid), 
-                role, 
+                app_id,
+                app_certificate,
+                channel_name,
+                int(uid),
+                role,
                 privilege_expired_ts
             )
-            
-            # 6. Flutter ko response dena
+
+            # Return token envelope to client
             return Response({
                 "success": True,
                 "token": token,
                 "room_id": channel_name,
                 "uid": uid
             }, status=200)
-            
-        except Exception as e:
-            return Response({"success": False, "error": str(e)}, status=500)   
 
-##call/end/api
+        except Exception as e:
+            return Response({"success": False, "error": str(e)}, status=500)
+
+
+# ---------------------------------------------------------------------------
+# 10. CALL TERMINATION / RELEASE
+# Releases the presence lock for the terminating participant.
+# ---------------------------------------------------------------------------
 class EndCallView(APIView):
     def post(self, request):
-        # Frontend se dono users ki ID aayegi
         user_id = request.data.get('user_id')
 
         if not user_id:
             return Response({"success": False, "error": "user_id is required"}, status=400)
 
-       # Sirf us specific user ka taala kholo
-        updated_count = UserActiva.objects.filter(user_id=user_id).update(
+        # Release active call state lock and clear timestamp
+        UserActiva.objects.filter(user_id=user_id).update(
             is_on_call=False,
             call_locked_at=None
         )
 
         return Response({
-            "success": True, 
+            "success": True,
             "message": "Call ended successfully. Users are now free!"
         }, status=200)
 
-##SubmitCallDetails       
+# ---------------------------------------------------------------------------
+# 11. CALL FEEDBACK & RATING SUBMISSION
+# Persists post-call participant feedback and rating metrics.
+# ---------------------------------------------------------------------------
 class SubmitCallDetailsView(APIView):
     authentication_classes = []
-    permission_classes = [AllowAny] 
+    permission_classes = [AllowAny]
 
     def post(self, request):
         serializer = CallDetailsSerializer(data=request.data)
-        
+
         if serializer.is_valid():
             speaking_partner = serializer.validated_data['speaking_partner']
             caller = serializer.validated_data['caller']
-            
-            # 🛡️ Rule 1: Koi apne aap ko rate na kar sake
+
+            # Business rule: Disallow self-rating submissions
             if caller == speaking_partner:
                 return Response(
-                    {"success": False, "message": "You cannot rate yourself."}, 
+                    {"success": False, "message": "You cannot rate yourself."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-                
-            # 🛡️ Rule 2: Just update previous details if they talk again
+
+            # Idempotent persistence: Update existing record for repeat pairings
             details_obj, created = CallDetails.objects.update_or_create(
                 caller=caller,
                 speaking_partner=speaking_partner,
@@ -623,120 +679,105 @@ class SubmitCallDetailsView(APIView):
                     'call_duration': serializer.validated_data['call_duration']
                 }
             )
-            
+
             return_data = CallDetailsSerializer(details_obj).data
-            
+
             return Response(
                 {
-                    "success": True, 
-                    "message": "Call details successfully created!" if created else "Call details successfully updated!", 
+                    "success": True,
+                    "message": "Call details successfully created!" if created else "Call details successfully updated!",
                     "data": return_data
-                }, 
+                },
                 status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
             )
-            
-        # Agar JSON mein koi field missing ya ghalat hai
+
+        # Handle validation failures on malformed or missing fields
         return Response(
-            {"success": False, "errors": serializer.errors}, 
+            {"success": False, "errors": serializer.errors},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-##Get history user
+
+# ---------------------------------------------------------------------------
+# 12. CALL HISTORY & FEEDBACK AUDIT
+# Returns paginated historical feedback submitted by a specific caller.
+# ---------------------------------------------------------------------------
 class UserFeedbackHistoryView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
     def get(self, request):
-        # 1. URL Query Parameter se 'caller_id' extract karna
+        # Extract caller ID from query parameters
         caller_id = request.GET.get('caller_id')
-        
-        # 2. Validation: Agar caller_id nahi aayi toh error do
+
+        # Validate presence of mandatory filter parameter
         if not caller_id:
             return Response(
-                {"success": False, "message": "caller_id is required as a URL query parameter."}, 
+                {"success": False, "message": "caller_id is required as a URL query parameter."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-            
+
         try:
-            # 3. Database Query: 
-            # - caller_id = caller_id (Jiski history dekhni hai)
-            # - order_by('-created_at') (Naye records sab se upar)
-            # - [:50] (Sirf Top 50)
+            # Query recent feedback records ordered chronologically descending (limit 50)
             history_records = CallDetails.objects.filter(
                 caller_id=caller_id
             ).order_by('-created_at')[:50]
-            
-            # 4. Serialize into JSON
+
+            # Serialize records for API response
             serializer = CallDetailsSerializer(history_records, many=True)
-            
+
             return Response({
                 "success": True,
                 "message": "Feedback history fetched successfully.",
                 "total_records": len(history_records),
                 "data": serializer.data
             }, status=status.HTTP_200_OK)
-            
+
         except Exception as e:
-            # Server error handling
+            # Internal server error handler
             return Response(
-                {"success": False, "error": str(e)}, 
+                {"success": False, "error": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-##Youtube Video List Api get and post
+
+# ---------------------------------------------------------------------------
+# 13. CURATED RESOURCE / YOUTUBE VIDEO FEED
+# Provides collection retrieval and ingestion for educational video resources.
+# ---------------------------------------------------------------------------
 class YouTubeVideoView(APIView):
-    """
-    API View to handle GET and POST requests for YouTube videos.
-    Authentication is temporarily disabled for testing purposes.
-    """
     authentication_classes = []
     permission_classes = [AllowAny]
 
-    # ==========================================
-    # 1. GET API - Retrieve all videos
-    # ==========================================
     def get(self, request):
+        """Retrieves all curated video records ordered newest first."""
         try:
-            # 1. Database Query: Fetch all video records, ordered by ID (newest first)
             videos = YouTubeVideo.objects.all().order_by('-id')
-            
-            # 2. Serialization: Convert the queryset into a JSON array
             serializer = YouTubeVideoSerializer(videos, many=True)
-            
-            # 3. Response: Send the serialized data array back to the client
             return Response(serializer.data, status=status.HTTP_200_OK)
-            
+
         except Exception as e:
-            # Catch any unexpected exceptions to prevent server crashes
             return Response(
                 {"success": False, "message": f"Internal Server Error: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-    # ==========================================
-    # 2. POST API - Add a new video to the database
-    # ==========================================
     def post(self, request):
+        """Ingests a new educational video resource into the catalog."""
         try:
-            # 1. Pass the incoming JSON data to the serializer
             serializer = YouTubeVideoSerializer(data=request.data)
-            
-            # 2. Validation: Check if the provided data is valid (all required fields exist)
             if serializer.is_valid():
-                # Save the new record to the database
-                serializer.save() 
-                
+                serializer.save()
                 return Response(
                     {"success": True, "message": "Video has been successfully added!"},
                     status=status.HTTP_201_CREATED
                 )
-            
-            # 3. Handle Validation Errors: Return the specific field errors if validation fails
+
             return Response(
                 {"success": False, "errors": serializer.errors},
                 status=status.HTTP_400_BAD_REQUEST
             )
-            
+
         except Exception as e:
             # Catch any unexpected exceptions during the creation process
             return Response(
@@ -745,21 +786,25 @@ class YouTubeVideoView(APIView):
             )
 
 
-## POST /api/terminate/
-# Body: { "user_id": 5, "reason": "Violated community guidelines" }
+# ---------------------------------------------------------------------------
+# 14. ACCOUNT TERMINATION
+# Administrative endpoint to transition a user account into terminated state.
+# ---------------------------------------------------------------------------
 class TerminateAccountView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+
     def post(self, request):
         user_id = request.data.get('user_id')
         reason  = request.data.get('reason')
+
         if not user_id or not reason:
             return Response({
                 "success": False,
                 "message": "user_id and reason are required."
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # Check user exists
+        # Validate that the targeted user exists
         try:
             User = get_user_model()
             user = User.objects.get(id=user_id)
@@ -769,24 +814,24 @@ class TerminateAccountView(APIView):
                 "message": "User not found."
             }, status=status.HTTP_404_NOT_FOUND)
 
-        # Get or create AccountStatus for this user
-
+        # Retrieve or initialize the user's account status record
         account_status, _ = AccountStatus.objects.get_or_create(
             user=user,
             defaults={'is_active': True, 'is_terminated': False}
         )
-        # Already terminated check
 
+        # Guard against redundant termination calls
         if account_status.is_terminated:
             return Response({
                 "success": False,
                 "message": "This account is already terminated."
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # Terminate
+        # Transition status flags and commit changes
         account_status.is_active     = False
         account_status.is_terminated = True
         account_status.save()
+
         return Response({
             "success": True,
             "message": f"Account of {user.email} has been terminated.",
@@ -798,23 +843,27 @@ class TerminateAccountView(APIView):
             }
         }, status=status.HTTP_200_OK)
 
-# ── APPEAL API ────────────────────────────────────────────
-# POST /api/appeal/
-# Body: { "email": "user@example.com", "message": "I was wrongly terminated" }
-# NOTE: This ONLY saves the appeal. Status change is MANUAL by admin.
+
+# ---------------------------------------------------------------------------
+# 15. USER APPEAL SUBMISSION
+# Allows terminated users to submit an appeal. Updates existing records
+# idempotently by email. Account reactivation is performed manually by an admin.
+# ---------------------------------------------------------------------------
 class AppealView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+
     def post(self, request):
         email   = request.data.get('email')
         message = request.data.get('message')
+
         if not email or not message:
             return Response({
                 "success": False,
                 "message": "email and message are required."
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # update_or_create — same email updates existing record, no duplicate rows
+        # Idempotent persistence: Update message for existing appeal from same email
         appeal, created = Appeal.objects.update_or_create(
             email=email.lower().strip(),
             defaults={'message': message}
